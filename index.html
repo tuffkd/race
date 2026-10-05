@@ -1,0 +1,74 @@
+<!doctype html><meta charset=utf-8><title>Phase 1 Sandbox</title>
+<style>body{margin:0;overflow:hidden;background:#05010f;font:12px monospace;color:#0ff}canvas{display:block}
+#p{position:fixed;top:8px;left:8px;background:#000a;padding:8px;border:1px solid #0ff4;max-height:90vh;overflow:auto}
+#p label{display:grid;grid-template-columns:80px 110px 36px;gap:4px;align-items:center}
+#h{position:fixed;top:8px;right:8px;text-align:right;white-space:pre}
+button{background:#012;color:#0ff;border:1px solid #0ff6;font:inherit;cursor:pointer;margin:2px}</style>
+<div id=p><b>TUNING</b> (H hides)</div><div id=h></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="sim.js"></script>
+<script>
+const DT=1/60,C=Sim.C,P=document.getElementById('p'),HUD=document.getElementById('h');
+// ---- remappable input ----
+const kb={left:['KeyA','ArrowLeft'],right:['KeyD','ArrowRight'],jump:['KeyW','ArrowUp'],power:['Space']};
+try{Object.assign(kb,JSON.parse(localStorage.kb))}catch(e){}
+const down=new Set(),held=a=>kb[a].some(c=>down.has(c));let rb=null;
+addEventListener('keydown',e=>{
+  if(rb){kb[rb]=[e.code];try{localStorage.kb=JSON.stringify(kb)}catch(_){}rb=null;ui();e.preventDefault();return}
+  down.add(e.code);if(e.code==='KeyR')reset();if(e.code==='KeyH')P.hidden=!P.hidden;
+  if(e.code.startsWith('Arrow')||e.code==='Space')e.preventDefault()});
+addEventListener('keyup',e=>down.delete(e.code));
+const KD=document.createElement('div');
+function ui(){KD.innerHTML='<br><b>KEYBINDS</b> (click, press key)<br>';for(const a in kb){const b=document.createElement('button');
+  b.textContent=a+': '+(rb===a?'...':kb[a].join('/'));b.onclick=()=>{rb=a;ui()};KD.appendChild(b)}}
+// ---- tuning ----
+const SP={speed:[10,60,1],flightMul:[1,2,.05],steer:[.5,5,.1],grip:[1,20,.5],air:[0,10,.5],gravity:[10,100,1],jumpV:[5,30,.5],
+  flightSink:[0,10,.5],rollTime:[.2,1.2,.05],fallDelay:[.1,3,.1],bump:[.5,4,.1],rest:[0,1,.05]};
+for(const k in SP){const[a,b,s]=SP[k],l=document.createElement('label');
+  l.innerHTML=`${k}<input type=range min=${a} max=${b} step=${s} value=${C[k]}><span>${C[k]}</span>`;
+  const i=l.children[0],o=l.children[1];i.oninput=()=>{C[k]=+i.value;o.textContent=i.value};P.appendChild(l)}
+P.appendChild(KD);ui();
+// ---- world ----
+const RAMPS=[[0,-12],[14,0],[-14,0],[8,14],[-8,14]].map(([x,z])=>({x,z,hw:4,h:2.5})),
+  PLATS=[{x:0,z:30,hw:6,top:4}];
+const mk=()=>{const w=Sim.create({radius:8,ramps:RAMPS,plats:PLATS});
+  w.cars.push(Sim.car('p',0,-28,0,1),Sim.car('d1',10,-5,0,1,false),Sim.car('d2',-10,5,0,2,false));return w};
+let w=mk();const reset=()=>{w=mk()};
+// ---- render ----
+const R=new THREE.WebGLRenderer({antialias:true});R.setSize(innerWidth,innerHeight);document.body.appendChild(R.domElement);
+const sc=new THREE.Scene();sc.background=new THREE.Color(0x05010f);sc.fog=new THREE.Fog(0x05010f,40,140);
+const cam=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,.1,300);
+addEventListener('resize',()=>{R.setSize(innerWidth,innerHeight);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()});
+sc.add(new THREE.AmbientLight(0x8060ff,.6));const dl=new THREE.DirectionalLight(0xffffff,.8);dl.position.set(20,50,10);sc.add(dl);
+const neon=(c,i=.8)=>new THREE.MeshStandardMaterial({color:c,emissive:c,emissiveIntensity:i,flatShading:true});
+const mIdle=new THREE.MeshStandardMaterial({color:0x101040,emissive:0x2010a0,emissiveIntensity:.5,flatShading:true}),mRed=neon(0xff1030,1);
+const edge=new THREE.LineBasicMaterial({color:0x00e5ff});
+const hg=new THREE.CylinderGeometry(Sim.S*.97,Sim.S*.97,.5,6),eg=new THREE.EdgesGeometry(hg);
+const tm=w.list.map(t=>{const m=new THREE.Mesh(hg,mIdle);m.add(new THREE.LineSegments(eg,edge));m.position.set(t.x,-.25,t.z);sc.add(m);return m});
+for(const r of RAMPS){const m=new THREE.Mesh(new THREE.ConeGeometry(r.hw*Math.SQRT2,r.h,4),neon(0xff00cc,.7));
+  m.rotation.y=Math.PI/4;m.position.set(r.x,r.h/2,r.z);sc.add(m)}
+for(const p of PLATS){const m=new THREE.Mesh(new THREE.BoxGeometry(p.hw*2,p.top,p.hw*2),neon(0x00ff88,.5));
+  m.position.set(p.x,p.top/2,p.z);m.add(new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry),edge));sc.add(m)}
+const cm=[0x00e5ff,0xffaa00,0xaa66ff].map(c=>{const g=new THREE.Group(),i=new THREE.Group(),mt=neon(c);
+  const b=new THREE.Mesh(new THREE.BoxGeometry(1.8,.6,3.2),mt),k=new THREE.Mesh(new THREE.BoxGeometry(1.2,.5,1.4),neon(0xffffff,.3));
+  k.position.set(0,.5,-.2);i.add(b,k);g.add(i);g.userData={i,mt};sc.add(g);return g});
+// ---- selftest: two identical runs must hash equal ----
+const det=(()=>{const run=()=>{const w=mk();let s=12345;for(let i=0;i<1800;i++){s=(s*1664525+1013904223)>>>0;
+  Sim.step(w,{p:{steer:((s>>>8)%3)-1,jump:(s>>>4)%90===0}},DT)}return Sim.hash(w)};return run()===run()})();
+// ---- loop ----
+let acc=0,last=performance.now(),fps=60;
+function frame(now){const fd=Math.min((now-last)/1000,.1);last=now;acc+=fd;fps+=(1/fd-fps)*.05;
+  while(acc>=DT){for(const c of w.cars){c.px=c.x;c.py=c.y;c.pz=c.z;c.pyaw=c.yaw}
+    Sim.step(w,{p:{steer:(held('right')?1:0)-(held('left')?1:0),jump:held('jump')}},DT);acc-=DT;
+    const p=w.cars[0];if(p.y<-40)Object.assign(p,{x:0,z:-20,y:6,vx:0,vy:0,vz:0,yaw:0,st:'A'})} // sandbox respawn
+  const a=acc/DT,L=(u,v)=>u+(v-u)*a;
+  w.list.forEach((t,i)=>{const m=tm[i];if(t.s===2){const d=w.t-t.ft;m.position.y=-.25-20*d*d;m.visible=m.position.y>-80}
+    else{m.position.y=-.25;m.visible=true;m.material=t.s?mRed:mIdle}});
+  w.cars.forEach((c,i)=>{const g=cm[i];g.position.set(L(c.px??c.x,c.x),L(c.py??c.y,c.y)+.4,L(c.pz??c.z,c.z));
+    g.rotation.y=L(c.pyaw??c.yaw,c.yaw);g.userData.i.rotation.z=-c.roll;g.userData.mt.emissiveIntensity=c.st==='F'?2.2:.8});
+  const p=w.cars[0],g=cm[0],yw=g.rotation.y,fx=Math.sin(yw),fz=Math.cos(yw),q=g.position;
+  cam.position.lerp(new THREE.Vector3(q.x-fx*9,q.y+5,q.z-fz*9),1-Math.exp(-8*fd));cam.lookAt(q.x+fx*6,q.y+1,q.z+fz*6);
+  HUD.textContent=`state ${p.st}  spd ${Math.hypot(p.vx,p.vz).toFixed(0)}  y ${p.y.toFixed(1)}  fps ${fps.toFixed(0)}\ndeterminism ${det?'OK':'FAIL'}\nR reset · H panel`;
+  R.render(sc,cam);requestAnimationFrame(frame)}
+requestAnimationFrame(frame);
+</script>
