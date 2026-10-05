@@ -3,7 +3,7 @@
   const C = { speed: 23, flightMul: 1.3, steer: 2.9, grip: 7, air: 2, gravity: 42, jumpV: 21, rampJump: 0.35,
     flightLift: 24, flightDamp: 2, flightSink: 3, rollTime: 0.6, fallDelay: 0.7, bump: 1.4, rest: 0.6, carR: 1.3 };
   const DEFAULTS = Object.assign({}, C);
-  const S = 0.75, SQ = Math.sqrt(3); // hex corner radius; width 1.3 / tip-to-tip 1.5 vs car length 3.2
+  const S = 0.75, SQ = Math.sqrt(3), CH = 1.2; // hex corner radius; car height for ceiling checks
   const hexXZ = (q, r) => [S * SQ * (q + r / 2), S * 1.5 * r];
   function xzHex(x, z) {
     const q = (SQ / 3 * x - z / 3) / S, r = 2 / 3 * z / S, s = -q - r;
@@ -14,14 +14,19 @@
   }
   const key = (q, r) => (q + 128) * 256 + (r + 128);
 
+  // Floating hex platform: {x,z,r(circumradius, vertex along z),top,th}. Underside = top-th. Open below.
+  // Modular: outer platforms (Phase 3) are just entries with top=0.
+  const hexIn = (p, x, z) => { const dx = Math.abs(x - p.x), dz = Math.abs(z - p.z);
+    return p.r * 0.866025 - Math.max(dx, 0.5 * dx + 0.866025 * dz); }; // >0 = inside, value = depth
+
   // st: G=grounded A=airborne(flight available) F=flight D=dropped(no flight until landing)
   const car = (id, x, z, yaw, mass, drive = true) => ({ id, x, y: 0, z, vx: 0, vy: 0, vz: 0, yaw, mass, drive,
     st: 'G', jp: false, roll: 0, rollT: -1, rollDir: 0, rise: 0 });
 
   function create(o = {}) {
     const w = { t: 0, cfg: C, tiles: new Map(), list: [], active: [], redLog: [], fallLog: [],
-      ramps: o.ramps || [], plats: o.plats || [], cars: [] };
-    const N = o.radius || 72;
+      ramps: o.ramps || [], plats: (o.plats || []).map(p => Object.assign({ th: 0.8 }, p)), cars: [] };
+    const N = o.radius || 36;
     for (let q = -N; q <= N; q++)
       for (let r = Math.max(-N, -q - N); r <= Math.min(N, -q + N); r++) {
         const [x, z] = hexXZ(q, r), t = { i: w.list.length, q, r, x, z, s: 0, t: 0, ft: 0 }; // s:0 idle 1 red 2 fallen
@@ -38,13 +43,16 @@
       const d = Math.max(Math.abs(c.x - p.x), Math.abs(c.z - p.z));
       if (d < p.hw) h = Math.max(h, p.h * (1 - d / p.hw));
     }
-    for (const p of w.plats)
-      if (Math.abs(c.x - p.x) < p.hw && Math.abs(c.z - p.z) < p.hw && c.y >= p.top - 0.5) h = Math.max(h, p.top);
+    for (const p of w.plats) // standable only from above; passable from below (open underneath)
+      if (c.y >= p.top - 0.5 && hexIn(p, c.x, c.z) > 0) h = Math.max(h, p.top);
     return h;
   }
 
+  // Single touchdown path: ANY surface contact fully resets the jump FSM to GROUNDED.
+  const land = (c, y) => { c.y = y; c.vy = 0; c.st = 'G'; c.rise = 0; c.rollT = -1; c.roll = 0; };
+
   function stepCar(w, c, inp, dt) {
-    const K = w.cfg, st = inp.steer || 0, edge = !!inp.jump && !c.jp;
+    const K = w.cfg, st = inp.steer || 0, edge = !!inp.jump && !c.jp, y0 = c.y;
     c.jp = !!inp.jump;
     c.yaw -= st * K.steer * dt;
     if (edge) {
@@ -59,22 +67,29 @@
     if (c.st === 'F') c.vy += (-K.flightSink - c.vy) * Math.min(1, K.flightDamp * dt);
     else if (c.st !== 'G') c.vy -= K.gravity * dt;
     c.x += c.vx * dt; c.z += c.vz * dt;
-    for (const p of w.plats) { // platform side walls (below top surface)
-      const dx = c.x - p.x, dz = c.z - p.z;
-      if (Math.abs(dx) < p.hw && Math.abs(dz) < p.hw && c.y < p.top - 0.5) {
-        const ox = p.hw - Math.abs(dx), oz = p.hw - Math.abs(dz);
-        if (ox < oz) { c.x += (dx < 0 ? -ox : ox); c.vx = 0; } else { c.z += (dz < 0 ? -oz : oz); c.vz = 0; }
-      }
-    }
     const gy = groundY(w, c);
     if (c.st === 'G') {
       if (gy === -Infinity || (gy < c.y - 0.05 && (c.rise > 1 || c.y - gy > 0.8))) {
-        c.st = 'A'; c.vy = Math.max(c.rise, 0); // ramp launch keeps flight available
+        c.st = 'A'; c.vy = Math.max(c.rise, 0); // ramp/edge launch keeps flight available
         c.y += c.vy * dt;
       } else { c.rise = (gy - c.y) / dt; c.y = gy; }
     } else {
       c.y += c.vy * dt;
-      if (gy > -Infinity && c.y <= gy && c.vy <= 0) { c.y = gy; c.vy = 0; c.st = 'G'; c.rise = 0; c.rollT = -1; c.roll = 0; }
+      if (gy > -Infinity && c.y <= gy) land(c, gy);
+    }
+    // platform slab (underside..top): head-bump from below, side push when entering horizontally
+    for (const p of w.plats) {
+      const under = p.top - p.th;
+      if (c.y >= p.top - 0.5 || c.y + CH <= under) continue;
+      const dep = hexIn(p, c.x, c.z);
+      if (dep <= 0) continue;
+      if (y0 + CH <= under + 1e-6) { c.y = under - CH; if (c.vy > 0) c.vy = 0; }
+      else {
+        const dx = Math.abs(c.x - p.x), dz = Math.abs(c.z - p.z), sx = c.x < p.x ? -1 : 1, sz = c.z < p.z ? -1 : 1;
+        const nx = dx >= 0.5 * dx + 0.866025 * dz ? sx : sx * 0.5, nz = dx >= 0.5 * dx + 0.866025 * dz ? 0 : sz * 0.866025;
+        c.x += nx * dep; c.z += nz * dep;
+        const vn = c.vx * nx + c.vz * nz; if (vn < 0) { c.vx -= vn * nx; c.vz -= vn * nz; }
+      }
     }
     if (c.rollT >= 0) {
       c.rollT += dt; c.roll = 6.2832 * Math.min(c.rollT / K.rollTime, 1) * c.rollDir;
@@ -113,6 +128,6 @@
   }
 
   const hash = w => JSON.stringify([w.t, w.cars, w.list.map(t => t.s)]);
-  const api = { C, DEFAULTS, S, car, create, step, hash, hexXZ, xzHex, groundY };
+  const api = { C, DEFAULTS, S, car, create, step, hash, hexXZ, xzHex, groundY, hexIn };
   if (typeof module !== 'undefined') module.exports = api; else g.Sim = api;
 })(typeof window !== 'undefined' ? window : globalThis);
