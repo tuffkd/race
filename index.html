@@ -1,109 +1,122 @@
 <!doctype html><meta charset=utf-8><title>Phase 1 Sandbox</title>
-<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;800&display=swap" rel=stylesheet>
 <style>
-body{margin:0;overflow:hidden;background:#05010f;font:13px Orbitron,'Trebuchet MS',sans-serif;color:#cfeaff}canvas{display:block}
-#m{position:fixed;top:12px;left:12px;width:360px;max-height:calc(100vh - 24px);display:flex;flex-direction:column;background:linear-gradient(#150a38ee,#07031cee);
- border:2px solid #00e5ff;border-radius:14px;box-shadow:0 0 24px #00e5ff66,inset 0 0 18px #7a2cff44}
-#m h1{margin:0;padding:12px 16px 4px;font-size:20px;font-weight:800;letter-spacing:3px;color:#fff;text-shadow:0 0 10px #ff2bd6,0 0 22px #00e5ff}
-#m small{padding:0 16px 8px;color:#8ba;font-size:10px;letter-spacing:1px}
-#tabs{display:flex;gap:4px;padding:0 10px}
-#tabs button{flex:1;padding:7px 2px;font:800 9px Orbitron,sans-serif;letter-spacing:1px;background:#1b0f4a;color:#9bd;border:1px solid #4a3a9a;border-radius:8px 8px 0 0;cursor:pointer}
-#tabs button.on{background:#00e5ff;color:#001;box-shadow:0 0 12px #00e5ff}
-#body{overflow:auto;padding:10px 16px;flex:1}
-.row{margin-bottom:13px}.row b{display:flex;justify-content:space-between;font-size:12px;color:#fff;letter-spacing:1px}
-.row b i{font-style:normal;color:#ffd23f;text-shadow:0 0 8px #ffd23f88}.row p{margin:2px 0 4px;font:11px 'Trebuchet MS',sans-serif;color:#9ab}
-input[type=range]{width:100%;accent-color:#ff2bd6}
-.kb{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
-.kb button,#foot button{font:800 11px Orbitron,sans-serif;background:#1b0f4a;color:#00e5ff;border:2px solid #00e5ff;border-radius:8px;padding:6px 12px;cursor:pointer}
-.kb button:hover,#foot button:hover{background:#00e5ff;color:#001}
-#foot{padding:8px 16px 12px;display:flex;justify-content:space-between;align-items:center;border-top:1px solid #4a3a9a}
-#open{position:fixed;top:12px;left:12px;display:none;font:800 12px Orbitron,sans-serif;background:#150a38;color:#00e5ff;border:2px solid #00e5ff;border-radius:10px;padding:8px 14px;cursor:pointer}
-#h{position:fixed;top:12px;right:14px;text-align:right;white-space:pre;font:800 13px Orbitron,sans-serif;text-shadow:0 0 8px #00e5ff}
+:root{--bg:#1a1d27;--card:#242938;--c2:#2f364b;--tx:#eef1f7;--mu:#8e97ad;--ac:#ffb62e;--ok:#4cc46a;--bad:#e5534b}
+body{margin:0;overflow:hidden;background:#12151d;font:600 13px/1.2 Inter,'Segoe UI',system-ui,sans-serif;color:var(--tx);user-select:none}canvas{display:block}
+button{font:inherit;color:inherit;cursor:pointer;border:0}
+#m{position:fixed;top:14px;left:14px;width:340px;max-height:calc(100vh - 28px);display:flex;flex-direction:column;background:var(--bg);border-radius:16px;box-shadow:0 6px 0 #0d0f15;overflow:hidden}
+#m h1{margin:0;padding:14px 16px 10px;font-size:14px;font-weight:800;letter-spacing:.1em}
+#tabs{display:flex;gap:5px;padding:0 12px 10px}
+.tab{flex:1;padding:8px 0;border-radius:10px;background:var(--card);color:var(--mu);font-size:10px;font-weight:800;letter-spacing:.06em;box-shadow:0 3px 0 #141720;transition:transform .06s}
+.tab:active{transform:translateY(3px);box-shadow:none}.tab.on{background:var(--ac);color:#2a1d00;box-shadow:0 3px 0 #b3780a}
+#body{overflow:auto;padding:2px 12px;flex:1}
+.row{background:var(--card);border-radius:12px;padding:10px 12px;margin-bottom:8px}
+.top{display:flex;justify-content:space-between;align-items:center}.nm{font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+.val{display:flex;align-items:center;gap:5px}.val span{min-width:40px;text-align:center;font-variant-numeric:tabular-nums}
+.val button{width:24px;height:24px;border-radius:8px;background:var(--c2);font-weight:800;font-size:14px;line-height:1;box-shadow:0 2px 0 #141720;transition:transform .05s}
+.val button:active{transform:translateY(2px);box-shadow:none}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:10px;border-radius:6px;margin:10px 0 2px;outline:0;background:linear-gradient(90deg,var(--ac) var(--p),#141720 var(--p))}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:#fff;border:3px solid #141720;cursor:grab}
+input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:#fff;border:3px solid #141720}
+.tg{width:48px;height:26px;border-radius:13px;background:#141720;position:relative;transition:background .12s}
+.tg::after{content:'';position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .12s}
+.tg.on{background:var(--ok)}.tg.on::after{transform:translateX(22px)}
+.kbtn{min-width:110px;padding:7px 10px;border-radius:9px;background:var(--c2);font-size:11px;font-weight:800;box-shadow:0 3px 0 #141720}
+.kbtn:active{transform:translateY(3px);box-shadow:none}.kbtn.wait{background:var(--ac);color:#2a1d00}
+#foot{display:flex;gap:8px;padding:8px 12px 14px}
+.btn{flex:1;padding:10px;border-radius:10px;font-size:11px;font-weight:800;letter-spacing:.06em;color:#fff;transition:transform .06s}
+.btn:active{transform:translateY(4px);box-shadow:none!important}
+#rst{background:var(--bad);box-shadow:0 4px 0 #9a312b}#cls{background:#3a4258;box-shadow:0 4px 0 #262c3e}
+#tip{position:fixed;z-index:9;display:none;max-width:230px;background:#fff;color:#161924;padding:8px 10px;border-radius:8px;font-size:12px;line-height:1.35;box-shadow:0 3px 0 #0006}
+#open{position:fixed;top:14px;left:14px;display:none;padding:9px 14px;border-radius:10px;background:var(--bg);font-weight:800;font-size:11px;box-shadow:0 4px 0 #0d0f15}
+#h{position:fixed;top:14px;right:14px;background:var(--bg);border-radius:12px;padding:10px 14px;text-align:right;white-space:pre;font-size:12px;box-shadow:0 4px 0 #0d0f15}
 </style>
-<div id=m><h1>HOST SETTINGS</h1><small>LIVE PHYSICS TUNING · CHANGES APPLY INSTANTLY</small><div id=tabs></div><div id=body></div>
-<div id=foot><button id=rst>RESTORE DEFAULTS</button><button id=cls>CLOSE [H]</button></div></div>
-<button id=open>⚙ SETTINGS [H]</button><div id=h></div>
+<div id=m><h1>LOBBY SETTINGS</h1><div id=tabs></div><div id=body></div>
+<div id=foot><button class=btn id=rst>RESET</button><button class=btn id=cls>CLOSE · H</button></div></div>
+<button id=open>SETTINGS · H</button><div id=tip></div><div id=h></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="sim.js"></script>
 <script>
-const DT=1/60,C=Sim.C,$=id=>document.getElementById(id);
+const DT=1/60,C=Sim.C,$=id=>document.getElementById(id),view={hud:true,cam:8.5};
 // ---- remappable input ----
 const kb={left:['KeyA','ArrowLeft'],right:['KeyD','ArrowRight'],jump:['KeyW','ArrowUp'],power:['Space']};
 try{Object.assign(kb,JSON.parse(localStorage.kb))}catch(e){}
-const down=new Set(),held=a=>kb[a].some(c=>down.has(c));let rb=null,tab='DRIVING';
-const NAMES={left:'STEER LEFT',right:'STEER RIGHT',jump:'JUMP / FLIGHT',power:'USE POWER-UP'};
+const down=new Set(),held=a=>kb[a].some(c=>down.has(c));let rb=null,tab='DRIVE';
+const NAMES={left:'Steer left',right:'Steer right',jump:'Jump / flight',power:'Use power-up'};
 addEventListener('keydown',e=>{
   if(rb){kb[rb]=[e.code];try{localStorage.kb=JSON.stringify(kb)}catch(_){}rb=null;draw();e.preventDefault();return}
   down.add(e.code);if(e.code==='KeyR')reset();if(e.code==='KeyH')toggle();
   if(e.code.startsWith('Arrow')||e.code==='Space')e.preventDefault()});
 addEventListener('keyup',e=>down.delete(e.code));
-// ---- host settings UI ----
+// ---- settings UI ----
 const G={
- DRIVING:[['speed','Cruise Speed',10,60,1,'Constant forward speed of every car. Higher = faster but harder to place precisely.'],
-  ['steer','Steering Rate',.5,6,.1,'How fast the car turns while a steer key is held.'],
-  ['grip','Ground Grip',1,20,.5,'How fast velocity snaps to where you point. Low = drifty and slidey, high = tight and responsive.'],
-  ['air','Air Control',0,10,.5,'Same as grip, but while airborne. Low = you keep floating in your launch direction.']],
- JUMP:[['gravity','Gravity',10,100,1,'Fall speed. Higher = snappier, shorter jumps.'],
-  ['jumpV','Jump Force',5,40,.5,'Upward kick of a ground hop. Sets how high a single jump goes.'],
-  ['rampJump','Ramp Jump Bonus',0,1,.05,'Extra jump power from ramp speed when you jump while on a ramp.'],
-  ['flightLift','Flight Lift',0,50,1,'Upward kick when flight engages. Main control for how high flight can climb.'],
-  ['flightDamp','Flight Smoothing',.5,8,.1,'How quickly the lift fades into a glide. Low = long, high climbs.'],
-  ['flightSink','Glide Sink',0,10,.5,'How fast the car drops while gliding. 0 = floats level.'],
-  ['flightMul','Flight Speed Boost',1,2,.05,'Forward speed multiplier while flying.'],
-  ['rollTime','Barrel Roll Time',.2,1.5,.05,'Seconds for the visual roll when jumping while steering.']],
- CRASH:[['bump','Bump Force',.5,4,.1,'Knockback strength on car-to-car hits. Higher = harder shoves.'],
-  ['rest','Bounciness',0,1,.05,'0 = cars stick and shove, 1 = full rebound.']],
- FLOOR:[['fallDelay','Tile Fall Delay',.1,3,.1,'Seconds between a tile turning red and dropping into the abyss.']]};
-const TABN={DRIVING:'DRIVE',JUMP:'AIR',CRASH:'CRASH',FLOOR:'FLOOR',KEYS:'KEYS'};
+ DRIVE:[[C,'speed','Cruise speed',10,60,1,'Constant forward speed of every car.'],
+  [C,'steer','Steering rate',.5,6,.1,'How fast the car turns while a steer key is held.'],
+  [C,'grip','Ground grip',1,20,.5,'Low = slidey and drifty. High = car snaps to where you point.'],
+  [C,'air','Air control',0,10,.5,'Grip while airborne. Low = you keep drifting along your launch direction.']],
+ AIR:[[C,'gravity','Gravity',10,100,1,'Fall speed. Higher = snappier, shorter jumps.'],
+  [C,'jumpV','Jump force',5,40,.5,'Upward kick of a ground hop.'],
+  [C,'rampJump','Ramp jump bonus',0,1,.05,'Extra jump power from ramp speed when you jump on a ramp.'],
+  [C,'flightLift','Flight lift',0,50,1,'Upward kick when flight engages. Sets how high flight can climb.'],
+  [C,'flightDamp','Flight smoothing',.5,8,.1,'How quickly the lift fades into a glide. Lower = longer climb.'],
+  [C,'flightSink','Glide sink',0,10,.5,'How fast you drop while gliding. 0 = level.'],
+  [C,'flightMul','Flight speed boost',1,2,.05,'Forward speed multiplier while flying.'],
+  [C,'rollTime','Barrel roll time',.2,1.5,.05,'Seconds for the roll when you jump while steering.']],
+ HIT:[[C,'bump','Bump force',.5,4,.1,'Knockback on car-to-car hits.'],[C,'rest','Bounciness',0,1,.05,'0 = cars stick and shove, 1 = full rebound.']],
+ FLOOR:[[C,'fallDelay','Tile fall delay',.1,3,.1,'Seconds between a tile turning red and dropping away.']],
+ VIEW:[[view,'hud','Show HUD','toggle','Show or hide the speed / state readout.'],[view,'cam','Camera distance',5,16,.5,'How far the chase camera sits behind the car.']]};
+const tip=$('tip');
+function hover(el,txt){el.onmouseenter=()=>{const r=el.getBoundingClientRect(),m=$('m').getBoundingClientRect();tip.textContent=txt;
+  tip.style.display='block';tip.style.left=m.right+10+'px';tip.style.top=r.top+'px'};el.onmouseleave=()=>tip.style.display='none'}
+const fmt=(v,s)=>(+v).toFixed(s<1?(s<.1?2:1):0);
 function draw(){
-  $('tabs').innerHTML='';for(const t in TABN){const b=document.createElement('button');b.textContent=TABN[t];b.className=t===tab?'on':'';
-    b.onclick=()=>{tab=t;draw()};$('tabs').appendChild(b)}
-  const B=$('body');B.innerHTML='';
-  if(tab==='KEYS'){B.innerHTML='<p style="color:#9ab;font:11px sans-serif">Click a button, then press the new key. Saved on this device.</p>';
-    for(const a in kb){const r=document.createElement('div');r.className='kb';r.innerHTML=`<b>${NAMES[a]}</b>`;
-      const b=document.createElement('button');b.textContent=rb===a?'PRESS A KEY…':kb[a].join(' / ');b.onclick=()=>{rb=a;draw()};r.appendChild(b);B.appendChild(r)}return}
-  for(const[k,n,a,b,s,d]of G[tab]){const r=document.createElement('div');r.className='row';
-    r.innerHTML=`<b>${n}<i>${C[k]}</i></b><p>${d}</p><input type=range min=${a} max=${b} step=${s} value=${C[k]}>`;
-    const i=r.querySelector('input'),o=r.querySelector('i');
-    i.oninput=()=>{C[k]=+i.value;o.textContent=i.value};i.onchange=()=>i.blur();B.appendChild(r)}}
-const toggle=()=>{const o=$('m').style.display==='none';$('m').style.display=o?'flex':'none';$('open').style.display=o?'none':'block'};
+  $('tabs').innerHTML='';for(const t of [...Object.keys(G),'KEYS']){const b=document.createElement('button');b.className='tab'+(t===tab?' on':'');
+    b.textContent=t;b.onclick=()=>{tab=t;draw()};$('tabs').appendChild(b)}
+  const B=$('body');B.innerHTML='';tip.style.display='none';
+  if(tab==='KEYS'){for(const a in kb){const r=document.createElement('div');r.className='row top';r.innerHTML=`<span class=nm>${NAMES[a]}</span>`;
+    const b=document.createElement('button');b.className='kbtn'+(rb===a?' wait':'');b.textContent=rb===a?'PRESS A KEY':kb[a].join(' / ').replace(/Key|Arrow/g,'');
+    b.onclick=()=>{rb=a;draw()};r.appendChild(b);hover(r,'Click, then press the key you want. Saved on this device.');B.appendChild(r)}return}
+  for(const[o,k,n,a,b,s,d]of G[tab]){const r=document.createElement('div');r.className='row';hover(r,d||s);
+    if(a==='toggle'){r.className='row top';r.innerHTML=`<span class=nm>${n}</span><button class="tg${o[k]?' on':''}"></button>`;hover(r,b);
+      r.querySelector('.tg').onclick=e=>{o[k]=!o[k];e.target.classList.toggle('on',o[k]);if(k==='hud')$('h').style.display=o[k]?'block':'none'};B.appendChild(r);continue}
+    r.innerHTML=`<div class=top><span class=nm>${n}</span><div class=val><button>−</button><span>${fmt(o[k],s)}</span><button>+</button></div></div><input type=range min=${a} max=${b} step=${s} value=${o[k]}>`;
+    const i=r.querySelector('input'),v=r.querySelector('span:not(.nm)'),[m,p]=r.querySelectorAll('button');
+    const set=x=>{x=Math.min(b,Math.max(a,+x));o[k]=Math.round(x/s)*s;o[k]=+o[k].toFixed(3);i.value=o[k];v.textContent=fmt(o[k],s);i.style.setProperty('--p',(o[k]-a)/(b-a)*100+'%')};
+    set(o[k]);i.oninput=()=>set(i.value);i.onchange=()=>i.blur();m.onclick=()=>set(o[k]-s);p.onclick=()=>set(o[k]+s);B.appendChild(r)}}
+const toggle=()=>{const o=$('m').style.display==='none';$('m').style.display=o?'flex':'none';$('open').style.display=o?'none':'block';tip.style.display='none'};
 $('cls').onclick=$('open').onclick=toggle;$('rst').onclick=()=>{Object.assign(C,Sim.DEFAULTS);draw()};draw();
-// ---- world ----
-const RAMPS=[[0,28],[-56,-62],[56,-62],[0,-40],[30,10]].map(([x,z])=>({x,z,hw:8,h:6})),
-  PLATS=[{x:0,z:60,hw:20,top:12},{x:-56,z:-30,hw:16,top:12},{x:56,z:-30,hw:16,top:12},{x:-56,z:10,hw:12,top:25}];
-const mk=()=>{const w=Sim.create({radius:72,ramps:RAMPS,plats:PLATS});
-  w.cars.push(Sim.car('p',0,-72,0,1),Sim.car('d1',15,-10,0,1,false),Sim.car('d2',-15,10,0,2,false));return w};
+// ---- world (compact arena, tight ramps, floating hex platforms) ----
+const RAMPS=[[0,2],[-10,-16],[10,-16],[0,-26],[-24,10]].map(([x,z])=>({x,z,hw:4,h:2.5})),
+  PLATS=[{x:0,z:26,r:9,top:9},{x:-30,z:-14,r:9,top:9},{x:30,z:-14,r:9,top:9},{x:30,z:22,r:8,top:21}];
+const mk=()=>{const w=Sim.create({radius:36,ramps:RAMPS,plats:PLATS});
+  w.cars.push(Sim.car('p',0,-34,0,1),Sim.car('d1',12,-4,0,1,false),Sim.car('d2',-12,6,0,2,false));return w};
 let w=mk();
 // ---- render ----
 const R=new THREE.WebGLRenderer({antialias:true});R.setSize(innerWidth,innerHeight);document.body.appendChild(R.domElement);
-const sc=new THREE.Scene();sc.background=new THREE.Color(0x05010f);sc.fog=new THREE.Fog(0x05010f,60,260);
-const cam=new THREE.PerspectiveCamera(75,innerWidth/innerHeight,.1,600);
+const sc=new THREE.Scene();sc.background=new THREE.Color(0x12151d);sc.fog=new THREE.Fog(0x12151d,50,200);
+const cam=new THREE.PerspectiveCamera(72,innerWidth/innerHeight,.1,400);
 addEventListener('resize',()=>{R.setSize(innerWidth,innerHeight);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()});
-sc.add(new THREE.AmbientLight(0x8060ff,.7));const dl=new THREE.DirectionalLight(0xffffff,.8);dl.position.set(40,100,20);sc.add(dl);
-const neon=(c,i=.8)=>new THREE.MeshStandardMaterial({color:c,emissive:c,emissiveIntensity:i,flatShading:true,side:THREE.DoubleSide});
-const edge=new THREE.LineBasicMaterial({color:0x00e5ff});
-// instanced hex floor
+sc.add(new THREE.AmbientLight(0xffffff,.65));const dl=new THREE.DirectionalLight(0xffffff,.7);dl.position.set(30,80,20);sc.add(dl);
+const mat=(c)=>new THREE.MeshLambertMaterial({color:c,flatShading:true,side:THREE.DoubleSide});
 const im=new THREE.InstancedMesh(new THREE.CylinderGeometry(Sim.S*.92,Sim.S*.92,.5,6),new THREE.MeshBasicMaterial(),w.list.length);
 im.frustumCulled=false;sc.add(im);
-const D=new THREE.Object3D(),col=new THREE.Color(),SH=[0x1a1a78,0x22228a,0x2a1a70],RED=0xff1030;
+const D=new THREE.Object3D(),col=new THREE.Color(),SH=[0x2b3550,0x313d5c,0x272f48],RED=0xd9473d;
 let ri=0,fi=0,anim=[];
 const setM=(t,y,s=1)=>{D.position.set(t.x,y,t.z);D.scale.setScalar(s);D.updateMatrix();im.setMatrixAt(t.i,D.matrix)};
 function initTiles(){ri=fi=0;anim=[];for(const t of w.list){setM(t,-.25);im.setColorAt(t.i,col.setHex(SH[((t.q-t.r)%3+3)%3]))}
   im.instanceMatrix.needsUpdate=im.instanceColor.needsUpdate=true}
 initTiles();const reset=()=>{w=mk();initTiles()};
-for(const r of RAMPS){const m=new THREE.Mesh(new THREE.ConeGeometry(r.hw*Math.SQRT2,r.h,4),neon(0xff00cc,.7));
+for(const r of RAMPS){const m=new THREE.Mesh(new THREE.ConeGeometry(r.hw*Math.SQRT2,r.h,4),mat(0xe39b2d));
   m.rotation.y=Math.PI/4;m.position.set(r.x,r.h/2,r.z);sc.add(m)}
-for(const p of PLATS){const m=new THREE.Mesh(new THREE.BoxGeometry(p.hw*2,p.top,p.hw*2),neon(p.top>20?0xffcc00:0x00ff88,.45));
-  m.position.set(p.x,p.top/2,p.z);m.add(new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry),edge));sc.add(m)}
-// cars (+ deployable wings)
-const ws=new THREE.Shape();ws.moveTo(0,.7);ws.lineTo(2.6,-.2);ws.lineTo(2.6,-.9);ws.lineTo(0,-.7);
+for(const p of w.plats){const m=new THREE.Mesh(new THREE.CylinderGeometry(p.r,p.r,p.th,6),mat(p.top>15?0xd4a24a:0x5a8f99));
+  m.position.set(p.x,p.top-p.th/2,p.z);sc.add(m)} // floating: nothing underneath
+// cars + deployable wings
+const ws=new THREE.Shape();ws.moveTo(0,.7);ws.lineTo(2.4,-.2);ws.lineTo(2.4,-.9);ws.lineTo(0,-.7);
 const wg=new THREE.ExtrudeGeometry(ws,{depth:.07,bevelEnabled:false});wg.rotateX(Math.PI/2);
-const cm=[0x00e5ff,0xffaa00,0xaa66ff].map(c=>{const g=new THREE.Group(),i=new THREE.Group(),mt=neon(c);
-  const b=new THREE.Mesh(new THREE.BoxGeometry(1.8,.6,3.2),mt),k=new THREE.Mesh(new THREE.BoxGeometry(1.2,.5,1.4),neon(0xffffff,.3));
+const cm=[0x3aa0ff,0xf2a33a,0xb26cf0].map(c=>{const g=new THREE.Group(),i=new THREE.Group();
+  const b=new THREE.Mesh(new THREE.BoxGeometry(1.8,.6,3.2),mat(c)),k=new THREE.Mesh(new THREE.BoxGeometry(1.2,.5,1.4),mat(0xeef1f7));
   k.position.set(0,.5,-.2);i.add(b,k);
-  const wm=neon(0xff2bd6,1.4),wings=[1,-1].map(sd=>{const p=new THREE.Group();p.position.set(sd*.85,.35,.1);
-    const m=new THREE.Mesh(wg,wm);m.rotation.y=sd>0?-Math.PI/2:Math.PI/2;m.rotation.x=0;p.add(m);p.scale.x=.001;i.add(p);return p});
-  g.add(i);g.userData={i,mt,wings,wk:0};sc.add(g);return g});
+  const wm=mat(0xeef1f7),wings=[1,-1].map(sd=>{const p=new THREE.Group();p.position.set(sd*.85,.35,.1);p.add(new THREE.Mesh(wg,wm));p.scale.x=.001;i.add(p);return p});
+  g.add(i);g.userData={i,wings,wk:0};sc.add(g);return g});
 // ---- selftest ----
 const det=(()=>{const run=()=>{const w=mk();let s=12345;for(let i=0;i<1800;i++){s=(s*1664525+1013904223)>>>0;
   Sim.step(w,{p:{steer:((s>>>8)%3)-1,jump:(s>>>4)%90===0}},DT)}return Sim.hash(w)};return run()===run()})();
@@ -112,21 +125,20 @@ let acc=0,last=performance.now(),fps=60;
 function frame(now){const fd=Math.min((now-last)/1000,.1);last=now;acc+=fd;fps+=(1/fd-fps)*.05;
   while(acc>=DT){for(const c of w.cars){c.px=c.x;c.py=c.y;c.pz=c.z;c.pyaw=c.yaw}
     Sim.step(w,{p:{steer:(held('right')?1:0)-(held('left')?1:0),jump:held('jump')}},DT);acc-=DT;
-    const p=w.cars[0];if(p.y<-60)Object.assign(p,{x:0,z:-60,y:6,vx:0,vy:0,vz:0,yaw:0,st:'A'})}
-  const a=acc/DT,L=(u,v)=>u+(v-u)*a;
-  let ch=false;
+    const p=w.cars[0];if(p.y<-60)Object.assign(p,{x:0,z:-30,y:6,vx:0,vy:0,vz:0,yaw:0,st:'A'})}
+  const a=acc/DT,L=(u,v)=>u+(v-u)*a;let ch=false;
   for(;ri<w.redLog.length;ri++){im.setColorAt(w.redLog[ri].i,col.setHex(RED));ch=true}
   for(;fi<w.fallLog.length;fi++)anim.push(w.fallLog[fi]);
   for(let k=anim.length-1;k>=0;k--){const t=anim[k],d=w.t-t.ft,y=-.25-20*d*d;
     if(y<-120){setM(t,-200,0);anim.splice(k,1)}else setM(t,y);ch=true}
   if(ch){im.instanceMatrix.needsUpdate=true;if(im.instanceColor)im.instanceColor.needsUpdate=true}
   w.cars.forEach((c,i)=>{const g=cm[i],u=g.userData;g.position.set(L(c.px??c.x,c.x),L(c.py??c.y,c.y)+.4,L(c.pz??c.z,c.z));
-    g.rotation.y=L(c.pyaw??c.yaw,c.yaw);u.i.rotation.z=-c.roll;u.mt.emissiveIntensity=c.st==='F'?2.2:.8;
+    g.rotation.y=L(c.pyaw??c.yaw,c.yaw);u.i.rotation.z=-c.roll;
     u.wk+=((c.st==='F'?1:0)-u.wk)*(1-Math.exp(-16*fd));const f=c.st==='F'?Math.sin(now*.012)*.08:0;
-    u.wings.forEach((p,j)=>{const s=j?-1:1;p.scale.x=Math.max(.001,u.wk);p.rotation.z=s*(f+.1*u.wk)})});
-  const g=cm[0],p=w.cars[0],yw=g.rotation.y,fx=Math.sin(yw),fz=Math.cos(yw),q=g.position;
-  cam.position.lerp(new THREE.Vector3(q.x-fx*11,q.y+6,q.z-fz*11),1-Math.exp(-8*fd));cam.lookAt(q.x+fx*8,q.y+1,q.z+fz*8);
-  $('h').textContent=`${{G:'GROUND',A:'AIR',F:'FLIGHT',D:'DROP'}[p.st]}  ·  ${Math.hypot(p.vx,p.vz).toFixed(0)} u/s  ·  alt ${p.y.toFixed(1)}\nfps ${fps.toFixed(0)} · sim ${det?'DETERMINISTIC':'DESYNC'}\nR reset · H settings`;
+    u.wings.forEach((p,j)=>{const s=j?-1:1;p.scale.x=s*Math.max(.001,u.wk);p.rotation.z=s*(f+.1*u.wk)})});
+  const g=cm[0],p=w.cars[0],yw=g.rotation.y,fx=Math.sin(yw),fz=Math.cos(yw),q=g.position,cd=view.cam;
+  cam.position.lerp(new THREE.Vector3(q.x-fx*cd,q.y+cd*.55,q.z-fz*cd),1-Math.exp(-8*fd));cam.lookAt(q.x+fx*6,q.y+1,q.z+fz*6);
+  $('h').textContent=`${{G:'GROUND',A:'AIR',F:'FLIGHT',D:'DROP'}[p.st]} · ${Math.hypot(p.vx,p.vz).toFixed(0)} u/s · alt ${p.y.toFixed(1)}\n${fps.toFixed(0)} fps · sim ${det?'deterministic':'DESYNC'}\nR reset · H settings`;
   R.render(sc,cam);requestAnimationFrame(frame)}
 requestAnimationFrame(frame);
 </script>
