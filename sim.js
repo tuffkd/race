@@ -92,7 +92,7 @@
   function create(o = {}) {
     const w = { t: 0, cfg: C, tiles: new Map(), list: [], active: [], queue: [], qh: 0, redLog: [], fallLog: [], regenLog: [],
       ramps: o.ramps || [], plats: (o.plats || []).map(p => Object.assign({ th: 0.7, o: 0, tier: 'mid' }, p)), cars: [], scores: {}, round: { phase: 'play', winner: null, t: 0 },
-      items: [], iid: 1, nextSpawn: -1, rs: o.seed || 12345, oilList: [], oilLog: [], oilClr: [], events: [] };
+      items: [], iid: 1, nextSpawn: -1, rs: o.seed || 12345, oilList: [], oilLog: [], oilClr: [], oilHit: [], events: [] };
     const N = o.radius || 36;
     for (let q = -N; q <= N; q++)
       for (let r = Math.max(-N, -q - N); r <= Math.min(N, -q + N); r++) {
@@ -191,6 +191,7 @@
       }
     }
     if (w.events.length > 200) w.events.splice(0, 100);
+    if (w.oilHit.length > 200) w.oilHit.splice(0, 100);
   }
   function activate(w, c) {
     const K = w.cfg, type = c.inv[0]; let ok = true;
@@ -298,7 +299,7 @@
     }
     if (c.st === 'G' && c.y < 0.1) { // oil: hitting a slick (not your own) kills traction; dispensing coats tiles under you
       const ct = w.tiles.get(key(...xzHex(c.x, c.z)));
-      if (ct && ct.o && ct.o !== c.id && !ct.oh.includes(c.id)) { c.slick = K.slickT; if (K.oilClearAll) clearTile(w, ct); else ct.oh.push(c.id); }
+      if (ct && ct.o && ct.o !== c.id && !ct.oh.includes(c.id)) { c.slick = K.slickT; if (K.oilClearAll) clearTile(w, ct); else { ct.oh.push(c.id); w.oilHit.push(ct); } }
       if (c.oilT > 0) coatAround(w, c);
     }
     if (c.decay && c.oilT <= 0 && c.st === 'G' && c.y < 0.1) { // 4 wheel contact points (decaying cars only; tiles are immune while you dispense oil)
@@ -373,7 +374,7 @@
   function resetRound(w) {
     for (const t of w.list) { t.s = 0; t.t = 0; t.ft = 0; t.fs = 1; t.o = null; t.oh = []; }
     w.active.length = 0; w.queue.length = 0; w.qh = 0; w.redLog.length = w.fallLog.length = w.regenLog.length = 0;
-    w.items = []; w.nextSpawn = -1; w.oilList = []; w.oilLog.length = w.oilClr.length = w.events.length = 0;
+    w.items = []; w.nextSpawn = -1; w.oilList = []; w.oilLog.length = w.oilClr.length = w.oilHit.length = w.events.length = 0;
     for (const c of w.cars) Object.assign(c, car(c.id, c.sp.x, c.sp.z, c.sp.yaw, c.mass, c.drive, c.decay));
     w.round = { phase: 'play', winner: null, t: 0 };
   }
