@@ -5,8 +5,8 @@ body{margin:0;overflow:hidden;background:#12151d;font:600 13px/1.2 Inter,'Segoe 
 button{font:inherit;color:inherit;cursor:pointer;border:0}
 #m{position:fixed;top:14px;left:14px;width:360px;max-height:calc(100vh - 28px);display:flex;flex-direction:column;background:var(--bg);border-radius:16px;box-shadow:0 6px 0 #0d0f15;overflow:hidden}
 #m h1{margin:0;padding:14px 16px 10px;font-size:14px;font-weight:800;letter-spacing:.1em}
-#tabs{display:flex;gap:5px;padding:0 12px 10px}
-.tab{flex:1;padding:8px 0;border-radius:10px;background:var(--card);color:var(--mu);font-size:9px;font-weight:800;letter-spacing:.02em;box-shadow:0 3px 0 #141720;transition:transform .06s}
+#tabs{display:flex;flex-wrap:wrap;gap:5px;padding:0 12px 10px}
+.tab{flex:1 0 21%;padding:8px 0;border-radius:10px;background:var(--card);color:var(--mu);font-size:9px;font-weight:800;letter-spacing:.02em;box-shadow:0 3px 0 #141720;transition:transform .06s}
 .tab:active{transform:translateY(3px);box-shadow:none}.tab.on{background:var(--ac);color:#2a1d00;box-shadow:0 3px 0 #b3780a}
 #body{overflow:auto;padding:2px 12px;flex:1}
 .row{background:var(--card);border-radius:12px;padding:10px 12px;margin-bottom:8px}
@@ -60,12 +60,13 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;bac
 #hostBtn:disabled,#joinBtn:disabled{opacity:.5}
 #tags{position:fixed;inset:0;pointer-events:none;overflow:hidden}
 .tag{position:absolute;left:0;top:0;background:rgba(26,29,39,.88);border-bottom:3px solid var(--c);padding:3px 9px;border-radius:8px;font-size:11px;font-weight:800;white-space:nowrap;letter-spacing:.04em;display:none}
-body.lobby #inv,body.lobby #sb,body.lobby #h,body.lobby #nr,body.lobby #sp,body.lobby #bn,body.lobby #tags,body.client #nr{display:none!important}
+body.lobby #zone,body.lobby #inv,body.lobby #sb,body.lobby #h,body.lobby #nr,body.lobby #sp,body.lobby #bn,body.lobby #tags,body.client #nr{display:none!important}
+#zone{position:fixed;top:64px;left:50%;transform:translateX(-50%);display:none;background:var(--bg);border-radius:10px;padding:6px 14px;font-size:12px;font-weight:800;letter-spacing:.06em;box-shadow:0 4px 0 #0d0f15;white-space:nowrap}#zone.hot{color:#ff7b72}
 #h{position:fixed;top:14px;right:14px;background:var(--bg);border-radius:12px;padding:10px 14px;text-align:right;white-space:pre;font-size:12px;box-shadow:0 4px 0 #0d0f15}
 </style>
 <div id=m><h1 id=mt>LOBBY SETTINGS</h1><div id=tabs></div><div id=body></div>
 <div id=foot><button class=btn id=rst>DEFAULTS</button><button class=btn id=cls>CLOSE · H</button></div></div>
-<button id=open>SETTINGS · H</button><div id=tip></div><div id=h></div><div id=sb></div><div id=inv></div><div id=bn></div><div id=sp></div><button id=nr>NEW ROUND · R</button><div id=tags></div>
+<button id=open>SETTINGS · H</button><div id=tip></div><div id=h></div><div id=sb></div><div id=zone></div><div id=inv></div><div id=bn></div><div id=sp></div><button id=nr>NEW ROUND · R</button><div id=tags></div>
 <div id=lobby><div class=card><h2>ARENA SURVIVAL</h2>
  <label>PLAYER NAME<input id=pname maxlength=14 placeholder="Player" autocomplete=off></label>
  <div class=cols id=cols>
@@ -120,6 +121,11 @@ const G={
  FLOOR:[[C,'fallDelay','Tile fall delay',.1,3,.1,'Seconds between a tile turning red and dropping away.'],
   [C,'regen','Tile respawn delay',1,15,1,'Seconds after a tile drops before it returns to its place.'],
   [C,'regenOff','Respawn off','toggle','Permanent destruction: fallen tiles never return, so the arena only shrinks.']],
+ SHRINK:[[C,'mapShrinkEnabled','Map shrinking','toggle','Battle-royale zone: the outermost tile rings collapse inward during a round and never come back.'],
+  [C,'mapShrinkInitialDelay','Initial delay',10,60,1,'Seconds into the round before the first collapse wave.'],
+  [C,'mapShrinkInterval','Wave interval',2,15,1,'Seconds between collapse waves.'],
+  [C,'mapShrinkRingsPerStep','Rings per wave',1,3,1,'How many outer tile rings fall at once each wave.'],
+  [C,'mapShrinkMinRemainingRings','Min remaining rings',0,4,1,'Shrinking stops at this size. 1 = center tile + 1 ring around it, 0 = center tile only.']],
  LOBBY:[[C,'maxPlayers','Max players',2,8,1,'How many players the room accepts (2-8). Also sets the car count of an offline practice match.'],
   [C,'fillBots','Fill with bots','toggle','When a match starts, empty slots up to Max players are filled with AI bots.'],
   [C,'botAI','Bot AI','toggle','On: bots drive, grab coins, dodge holes, ram and use items. Off: bots stand still (bump-test dummies).']],
@@ -161,7 +167,7 @@ function draw(){
       r.querySelector('.tg').onclick=e=>{o[k]=!o[k];persist(o);e.target.classList.toggle('on',o[k]);if(k==='hud')$('h').style.display=o[k]?'block':'none';if(k==='regenOff')draw()};B.appendChild(r);continue}
     r.innerHTML=`<div class=top><span class=nm>${n}</span><div class=val><button>−</button><span>${fmt(o[k],s)}</span><button>+</button></div></div><input type=range min=${a} max=${b} step=${s} value=${o[k]}>`;
     const i=r.querySelector('input'),v=r.querySelector('span:not(.nm)'),[m,p]=r.querySelectorAll('button');
-    const set=(x,sv)=>{x=Math.min(b,Math.max(a,+x));o[k]=Math.round(x/s)*s;o[k]=+o[k].toFixed(3);if(sv)persist(o);i.value=o[k];v.textContent=fmt(o[k],s)+(k==='regen'?'s':'');i.style.setProperty('--p',(o[k]-a)/(b-a)*100+'%')};
+    const set=(x,sv)=>{x=Math.min(b,Math.max(a,+x));o[k]=Math.round(x/s)*s;o[k]=+o[k].toFixed(3);if(sv)persist(o);i.value=o[k];v.textContent=fmt(o[k],s)+({regen:'s',mapShrinkInitialDelay:'s',mapShrinkInterval:'s'}[k]||'');i.style.setProperty('--p',(o[k]-a)/(b-a)*100+'%')};
     set(o[k]);i.oninput=()=>set(i.value,1);i.onchange=()=>i.blur();m.onclick=()=>set(o[k]-s,1);p.onclick=()=>set(o[k]+s,1);B.appendChild(r)}}
 const canEdit=()=>mode==='offline'||net.role==='host'; // game rules / balance: host (or offline) only
 const applyPanel=()=>{const ce=canEdit(),sig=ce?'H':'C';
@@ -261,7 +267,7 @@ function ring(x,z,R,c,d,y){const m=new THREE.Mesh(new THREE.RingGeometry(.92,1,4
 const det=(()=>{const run=()=>{const w=mk();let s=12345;for(let i=0;i<1800;i++){s=(s*1664525+1013904223)>>>0;
   Sim.step(w,{p:{steer:((s>>>8)%3)-1,jump:(s>>>4)%90===0}},DT)}return Sim.hash(w)};return run()===run()})();
 // ---- loop + multiplayer ----
-let acc=0,last=performance.now(),fps=60,sbHtml='',hudKey='',lastIn='',lastInT=0;const tv=new THREE.Vector3();
+let acc=0,last=performance.now(),fps=60,sbHtml='',hudKey='',zoneFlash=0,lastIn='',lastInT=0;const tv=new THREE.Vector3();
 const me=()=>w.cars.find(c=>c.id===net.myId)||w.cars[0];
 const nameOf=id=>(w.cars.find(c=>c.id===id)||{}).name||id;
 const steerNow=()=>(held('right')?1:0)-(held('left')?1:0);
@@ -283,7 +289,7 @@ function snapshot(){const T=net.d,L=w.list;
   const m={k:'s',t:+w.t.toFixed(3),
     c:w.cars.map(c=>({i:c.id,x:r2(c.x),y:r2(c.y),z:r2(c.z),a:r2(c.yaw),r:r2(c.roll),vx:r2(c.vx),vz:r2(c.vz),st:c.st,al:c.alive?1:0,inv:c.inv,sm:r2(c.smashT),sh:c.shield,bo:r2(c.boostT),gh:r2(c.ghostT),oi:r2(c.oilT),sl:r2(c.slick),e:c.ev,g:c.gs})),
     it:w.items.map(i=>({id:i.id,type:i.type,x:r2(i.x),y:r2(i.y),z:r2(i.z)})),rd:{ph:w.round.phase,wi:w.round.winner},sc:w.scores,
-    ts:[...T.ts].map(i=>{const t=L[i];return[i,t.s,+t.ft.toFixed(3),t.fs]}),os:[...T.os].map(i=>{const t=L[i];return[i,t.o,t.oh]}),ev:T.ev};
+    ts:[...T.ts].map(i=>{const t=L[i];return[i,t.s,+t.ft.toFixed(3),t.fs]}),os:[...T.os].map(i=>{const t=L[i];return[i,t.o,t.oh]}),ev:T.ev,zn:Sim.shrinkInfo(w)};
   T.ts.clear();T.os.clear();T.ev=[];return m}
 // ---- CLIENT: dumb terminal. No physics: apply host packets, interpolate, send inputs ----
 function applySnap(m){const now=performance.now(),L=w.list,pose={};
@@ -295,7 +301,7 @@ function applySnap(m){const now=performance.now(),L=w.list,pose={};
     if(s===1&&p!==1)w.redLog.push(t);else if(s===2&&p!==2)w.fallLog.push(t);else if(s===0&&p!==0)w.regenLog.push(t)}
   for(const [i,o,oh] of m.os){const t=L[i];if(!t)continue;const had=!!t.o;t.o=o;t.oh=oh||[];
     if(o){if(!had)w.oilList.push(t);w.oilLog.push(t)}else if(had){w.oilList=w.oilList.filter(x=>x!==t);w.oilClr.push(t)}}
-  w.items=m.it.map(i=>({...i,ti:-1}));w.round.phase=m.rd.ph;w.round.winner=m.rd.wi;w.scores=m.sc;for(const e of m.ev)w.events.push(e)}
+  w.items=m.it.map(i=>({...i,ti:-1}));w.round.phase=m.rd.ph;w.round.winner=m.rd.wi;w.scores=m.sc;w.zn=m.zn;for(const e of m.ev)w.events.push(e)}
 function clientTick(now){const S=net.snaps;if(!S.length)return;const lt=S[S.length-1];w.t=lt.t+(now-lt.rt)/1000; // host clock, extrapolated
   const rt=now-100;let a=S[0],b=S[0],f=0; // render 100 ms in the past, interpolating between host snapshots
   for(let i=S.length-1;i>=0;i--){if(S[i].rt<=rt){a=S[i];b=S[i+1]||S[i];f=b===a?0:(rt-a.rt)/(b.rt-a.rt);break}a=b=S[i]}
@@ -317,8 +323,16 @@ function updateLobby(){const ro=net.role==='host'?rosterOut():net.roster,inRoom=
   $('plist').innerHTML=ro.map((r,i)=>`<div class=pl><i style="background:${hx(COLORS[i%8])}"></i>${esc(r.name)}${r.sc?' <b>'+r.sc+'</b>':''}${r.id==='p'?'<small>HOST</small>':r.id===net.myId?'<small>YOU</small>':''}</div>`).join('');
   $('room').style.display=net.code&&inRoom?'block':'none';$('room').innerHTML=net.code&&inRoom?`ROOM ID<b>${net.code}</b>${net.role==='host'?'Friends enter this code to join':'Share this code so friends can join'}`:'';
   $('cap').textContent=inRoom?`PLAYERS ${ro.length}/${C.maxPlayers}${C.fillBots&&net.role==='host'?' · empty slots filled with bots':''}`:'';
-  $('cols').style.display=inRoom?'none':'grid';$('pname').readOnly=inRoom;
+  $('cols').style.display=inRoom?'none':'grid';
+  const mine=ro.find(x=>x.id===net.myId);if(inRoom&&mine&&$('pname').value!==mine.name&&document.activeElement!==$('pname'))$('pname').value=mine.name; // show the name the host actually accepted
   $('startBtn').style.display=net.role==='host'&&!net.live&&(ro.length>=2||(C.fillBots&&C.maxPlayers>=2))?'block':'none'}
+function uniqueName(base,id){let n=base,i=2;while(net.roster.some(r=>r.id!==id&&r.name===n))n=cleanName(base.slice(0,11))+' '+i++;return n}
+let nameT=0;
+function pushName(){clearTimeout(nameT);const nm=myName();saveName();
+  if(net.live)return; // names only change in the lobby / intermission
+  if(net.role==='host'){const me0=net.roster.find(r=>r.id==='p');if(me0){me0.name=uniqueName(nm,'p');bcast({k:'roster',roster:rosterOut(),code:net.code});updateLobby()}}
+  else if(net.role==='client'&&net.hostConn){try{net.hostConn.send({k:'NAME_UPDATE',name:nm})}catch(e){}}}
+$('pname').oninput=()=>{clearTimeout(nameT);nameT=setTimeout(pushName,250)};$('pname').onchange=pushName;
 function leaveNet(){try{net.peer&&net.peer.destroy()}catch(e){}net.peer=null;net.hostConn=null;net.conns={};net.roster=[];net.role='none';net.live=false;net.code='';net.scores={};net.interAt=0;net.myId='p';net.inp={};net.cn=0;
   $('hostBtn').disabled=$('joinBtn').disabled=false;updateLobby();applyPanel()}
 function hostGame(tries=0){
@@ -336,6 +350,7 @@ function hostAccept(conn){let id=null;
       net.roster.push({id,name});net.conns[id]=conn;net.inp[id]={s:0,j:0,p:0,sj:0,sp:0};
       conn.send({k:'welcome',id,cfg:{...C},roster:rosterOut(),code:net.code}); // one-time full config sync: the client now plays by the host's rules
       bcast({k:'roster',roster:rosterOut(),code:net.code});updateLobby()}
+    else if(d.k==='NAME_UPDATE'&&id&&!net.live){const r=net.roster.find(x=>x.id===id);if(r){r.name=uniqueName(cleanName(d.name),id);bcast({k:'roster',roster:rosterOut(),code:net.code});updateLobby()}} // accept + rebroadcast so every lobby updates live
     else if(d.k==='in'&&id&&net.inp[id]){const r=net.inp[id];r.s=Math.max(-1,Math.min(1,+d.s||0));r.j=Math.max(r.j,d.j|0);r.p=Math.max(r.p,d.p|0)}});
   conn.on('close',()=>{if(!id)return;delete net.conns[id];delete net.inp[id];
     if(net.live){const c=w.cars.find(c=>c.id===id);if(c){c.alive=false;c.vx=c.vy=c.vz=0}}
@@ -425,7 +440,7 @@ function frame(now){const fd=Math.min((now-last)/1000,.1);last=now;fps+=(1/fd-fp
   for(const id in itemMesh)if(!live[id]){sc.remove(itemMesh[id]);delete itemMesh[id]}
   for(const e of w.events){const c=w.cars.find(c=>c.id===e.id);
     if(e.k==='shock')ring(e.x,e.z,e.r,0x7fd8ff,.5,e.y);else if(e.k==='collapse')ring(e.x,e.z,e.rad||5,0x8b1a1a,.5,0);
-    else if(e.k==='shatter'&&c)ring(c.x,c.z,9,0xffb62e,.4,c.y);else if(e.k==='shield'&&c)ring(c.x,c.z,4,0x4cc4ff,.25,c.y)}
+    else if(e.k==='shatter'&&c)ring(c.x,c.z,9,0xffb62e,.4,c.y);else if(e.k==='shield'&&c)ring(c.x,c.z,4,0x4cc4ff,.25,c.y);else if(e.k==='zone')zoneFlash=now+1800}
   w.events.length=0;
   for(let k=rings.length-1;k>=0;k--){const r=rings[k],a2=(now-r.t0)/(r.d*1000);if(a2>=1){sc.remove(r.m);rings.splice(k,1)}else{r.m.scale.setScalar(Math.max(.01,a2*r.R));r.m.material.opacity=.6*(1-a2)}}
   const pk=p,hk=JSON.stringify([pk.inv,Math.ceil(pk.smashT),pk.shield,pk.boostT>0,Math.ceil(pk.ghostT),Math.ceil(pk.oilT),pk.alive]);
@@ -438,6 +453,12 @@ function frame(now){const fd=Math.min((now-last)/1000,.1);last=now;fps+=(1/fd-fp
   const rd=w.round;if(rd.phase==='over'&&!seenOver){seenOver=true;bnUntil=now+3500}if(rd.phase==='play')seenOver=false;
   const bn=$('bn');if(now<bnUntil){bn.style.display='block';bn.innerHTML=rd.winner?`ROUND WINNER<small>${esc(nameOf(rd.winner))} · +1 point</small>`:'DRAW<small>no survivors</small>'}else bn.style.display='none';
   const sp=$('sp');sp.style.display=p.alive||overlayOn()?'none':'block';sp.textContent=p.alive?'':`ELIMINATED · spectating${al.length&&ti>=0?' · '+w.cars[ti].name:''} · ${kb.left[0].replace('Key','')}/${kb.right[0].replace('Key','')} switch`;
+  const zi=mode==='client'?(w.zn||{next:-1,ring:36,min:1}):Sim.shrinkInfo(w),zel=$('zone');let zt='',hot=false;
+  if(!overlayOn()&&w.round.phase==='play'&&C.mapShrinkEnabled){
+    if(now<zoneFlash){zt='⚠ ZONE SHRINKING';hot=true}
+    else if(zi.next>=0){const sec=Math.max(0,Math.ceil(zi.next-w.t));zt=`ZONE SHRINKS IN ${sec}s · ${zi.ring-zi.min} RINGS LEFT`;hot=sec<=3}
+    else if(zi.ring<=zi.min)zt='ZONE AT MINIMUM'}
+  zel.style.display=zt?'block':'none';zel.textContent=zt;zel.className=hot?'hot':'';
   const sh=w.cars.map(c=>`<span class="${c.id===net.myId?'you':''} ${c.alive?'':'out'}">${esc(c.name||c.id)}<b>${w.scores[c.id]||0}</b></span>`).join('');
   if(sh!==sbHtml){sbHtml=sh;$('sb').innerHTML=sh}
   $('h').textContent=`${p.alive?{G:'GROUND',J:'JUMP',F:'FLIGHT',D:'DROP',X:'FALLING',C:'COYOTE'}[p.st]:'ELIMINATED'} · ${Math.hypot(p.vx,p.vz).toFixed(0)} u/s · alt ${p.y.toFixed(1)}\n${fps.toFixed(0)} fps · ${mode==='client'?'CLIENT · ROOM '+net.code:mode==='host'?'HOST · ROOM '+net.code+' · '+net.roster.length+'/'+C.maxPlayers:'offline'}\njump: ${p.ev||'-'} · air ${p.gs}f\n${canEdit()?'R new round · H settings':'H controls · host sets the rules'}`;
