@@ -6,7 +6,7 @@ button{font:inherit;color:inherit;cursor:pointer;border:0}
 #m{position:fixed;top:14px;left:14px;width:360px;max-height:calc(100vh - 28px);display:flex;flex-direction:column;background:var(--bg);border-radius:16px;box-shadow:0 6px 0 #0d0f15;overflow:hidden}
 #m h1{margin:0;padding:14px 16px 10px;font-size:14px;font-weight:800;letter-spacing:.1em}
 #tabs{display:flex;gap:5px;padding:0 12px 10px}
-.tab{flex:1;padding:8px 0;border-radius:10px;background:var(--card);color:var(--mu);font-size:10px;font-weight:800;letter-spacing:.06em;box-shadow:0 3px 0 #141720;transition:transform .06s}
+.tab{flex:1;padding:8px 0;border-radius:10px;background:var(--card);color:var(--mu);font-size:9px;font-weight:800;letter-spacing:.02em;box-shadow:0 3px 0 #141720;transition:transform .06s}
 .tab:active{transform:translateY(3px);box-shadow:none}.tab.on{background:var(--ac);color:#2a1d00;box-shadow:0 3px 0 #b3780a}
 #body{overflow:auto;padding:2px 12px;flex:1}
 .row{background:var(--card);border-radius:12px;padding:10px 12px;margin-bottom:8px}
@@ -54,7 +54,7 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;bac
 #room b{display:block;font-size:34px;letter-spacing:.3em;color:var(--ac);margin:4px 0 4px .3em}
 .pl{display:flex;align-items:center;gap:8px;background:var(--card);border-radius:10px;padding:8px 10px;margin-bottom:6px}
 .pl i{width:12px;height:12px;border-radius:50%}.pl small{margin-left:auto;color:var(--mu);font-size:9px;letter-spacing:.08em}
-#lmsg{min-height:16px;font-size:12px;color:var(--ac)}
+#lmsg{min-height:16px;font-size:12px;color:var(--ac)}#lmsg.err{color:#ff7b72;font-weight:800}#cap{font-size:11px;color:var(--mu);letter-spacing:.08em}
 #lobby .link{background:none;color:var(--mu);text-decoration:underline;font-size:12px;padding:4px}
 #hostBtn,#joinBtn{background:var(--ac);color:#2a1d00;box-shadow:0 4px 0 #b3780a}#startBtn{background:var(--ok);box-shadow:0 4px 0 #2f8a47;display:none}
 #hostBtn:disabled,#joinBtn:disabled{opacity:.5}
@@ -63,16 +63,16 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;bac
 body.lobby #inv,body.lobby #sb,body.lobby #h,body.lobby #nr,body.lobby #sp,body.lobby #bn,body.lobby #tags,body.client #nr{display:none!important}
 #h{position:fixed;top:14px;right:14px;background:var(--bg);border-radius:12px;padding:10px 14px;text-align:right;white-space:pre;font-size:12px;box-shadow:0 4px 0 #0d0f15}
 </style>
-<div id=m><h1>LOBBY SETTINGS</h1><div id=tabs></div><div id=body></div>
+<div id=m><h1 id=mt>LOBBY SETTINGS</h1><div id=tabs></div><div id=body></div>
 <div id=foot><button class=btn id=rst>DEFAULTS</button><button class=btn id=cls>CLOSE · H</button></div></div>
 <button id=open>SETTINGS · H</button><div id=tip></div><div id=h></div><div id=sb></div><div id=inv></div><div id=bn></div><div id=sp></div><button id=nr>NEW ROUND · R</button><div id=tags></div>
 <div id=lobby><div class=card><h2>ARENA SURVIVAL</h2>
  <label>PLAYER NAME<input id=pname maxlength=14 placeholder="Player" autocomplete=off></label>
- <div class=cols>
-  <div class=col><button class=btn id=hostBtn>HOST GAME</button><div id=room></div></div>
+ <div class=cols id=cols>
+  <div class=col><button class=btn id=hostBtn>HOST GAME</button></div>
   <div class=col><input id=joinCode maxlength=4 placeholder="ROOM ID" autocomplete=off><button class=btn id=joinBtn>JOIN GAME</button></div>
  </div>
- <div id=plist></div><div id=lmsg></div>
+ <div id=room></div><div id=cap></div><div id=plist></div><div id=lmsg></div>
  <button class=btn id=startBtn>START MATCH</button><button class=link id=practice>Practice offline (bots)</button>
 </div></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -83,17 +83,17 @@ const DT=1/60,C=Sim.C,$=id=>document.getElementById(id),view={hud:true,cam:8.5};
 // ---- remappable input ----
 const kb={left:['KeyA','ArrowLeft'],right:['KeyD','ArrowRight'],jump:['KeyW','ArrowUp'],power:['Space']};
 try{Object.assign(kb,JSON.parse(localStorage.kb))}catch(e){}
-const down=new Set(),held=a=>kb[a].some(c=>down.has(c));let rb=null,tab='DRIVE',jl=false,pl=false,jc=0,pc=0,mode='lobby',panelOpen=false;
+const down=new Set(),held=a=>kb[a].some(c=>down.has(c));let rb=null,tab='DRIVE',jl=false,pl=false,jc=0,pc=0,mode='lobby',panelOpen=false,drawSig='';
 const NAMES={left:'Steer left',right:'Steer right',jump:'Jump / flight',power:'Use power-up'};
 // ---- multiplayer state (PeerJS). Host = authoritative sim; clients = dumb terminals ----
-const net={role:'none',peer:null,conns:{},hostConn:null,roster:[],myId:'p',code:'',started:false,cn:0,inp:{},snaps:[],sendT:0,cfgT:0,d:{ts:new Set(),os:new Set(),ev:[]}};
+const net={role:'none',peer:null,conns:{},hostConn:null,roster:[],myId:'p',code:'',live:false,scores:{},interAt:0,cn:0,inp:{},snaps:[],sendT:0,cfgT:0,d:{ts:new Set(),os:new Set(),ev:[]}};
 const esc=s=>String(s).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const cleanName=s=>String(s||'').replace(/[\u0000-\u001f<>]/g,'').trim().slice(0,14)||'Player';
 const myName=()=>cleanName($('pname').value);
 addEventListener('keydown',e=>{
   if(e.target&&/^(INPUT|TEXTAREA)$/.test(e.target.tagName||''))return; // typing in lobby/settings fields never triggers game keys
   if(rb){kb[rb]=[e.code];try{localStorage.kb=JSON.stringify(kb)}catch(_){}rb=null;draw();e.preventDefault();return}
-  down.add(e.code);if(mode!=='lobby'&&!me().alive){if(kb.left.includes(e.code))spec.i--;if(kb.right.includes(e.code))spec.i++}if(!e.repeat&&kb.jump.includes(e.code)){jl=true;jc++}if(!e.repeat&&kb.power.includes(e.code)){pl=true;pc++}if(e.code==='KeyR')doReset();if(e.code==='KeyH')toggle();
+  down.add(e.code);if(!overlayOn()&&!me().alive){if(kb.left.includes(e.code))spec.i--;if(kb.right.includes(e.code))spec.i++}if(!e.repeat&&kb.jump.includes(e.code)){jl=true;jc++}if(!e.repeat&&kb.power.includes(e.code)){pl=true;pc++}if(e.code==='KeyR')doReset();if(e.code==='KeyH')toggle();
   if(e.code.startsWith('Arrow')||e.code==='Space')e.preventDefault()});
 addEventListener('keyup',e=>down.delete(e.code));addEventListener('blur',()=>{down.clear();jl=false;pl=false});
 // ---- settings UI ----
@@ -120,6 +120,9 @@ const G={
  FLOOR:[[C,'fallDelay','Tile fall delay',.1,3,.1,'Seconds between a tile turning red and dropping away.'],
   [C,'regen','Tile respawn delay',1,15,1,'Seconds after a tile drops before it returns to its place.'],
   [C,'regenOff','Respawn off','toggle','Permanent destruction: fallen tiles never return, so the arena only shrinks.']],
+ LOBBY:[[C,'maxPlayers','Max players',2,8,1,'How many players the room accepts (2-8). Also sets the car count of an offline practice match.'],
+  [C,'fillBots','Fill with bots','toggle','When a match starts, empty slots up to Max players are filled with AI bots.'],
+  [C,'botAI','Bot AI','toggle','On: bots drive, grab coins, dodge holes, ram and use items. Off: bots stand still (bump-test dummies).']],
  ITEMS:[[C,'puOn','Power-ups on','toggle','Turn item spawning on or off.'],
   [C,'puMax','Items on map',1,6,1,'Maximum uncollected power-ups on the board at once.'],
   [C,'pickupSpawnMinDelay','Spawn delay min',0,10,.5,'Shortest wait (s) before a new item appears after a pickup.'],
@@ -141,12 +144,13 @@ const G={
   [C,'oilClearAll','Oil clears for all','toggle','When a car hits oil, remove it for everyone, not just that car.'],
   [C,'ghostPhaseDuration','Ghost Phase time',1,8,.5,'Seconds of intangibility.']],
  VIEW:[[view,'hud','Show HUD','toggle','Show or hide the speed / state readout.'],[view,'cam','Camera distance',5,16,.5,'How far the chase camera sits behind the car.']]};
-const tip=$('tip');let saveT=0;const persist=o=>{if(!canEdit())return;if(o===C){clearTimeout(saveT);saveT=setTimeout(()=>Sim.saveConfig(),150);cfgSoon()}}; // host tweaks survive reloads (localStorage)
+const tip=$('tip');let saveT=0;const persist=o=>{if(!canEdit())return;if(o===C){clearTimeout(saveT);saveT=setTimeout(()=>Sim.saveConfig(),150);cfgSoon();if(net.role==='host')updateLobby()}}; // host tweaks survive reloads (localStorage)
 function hover(el,txt){el.onmouseenter=()=>{const r=el.getBoundingClientRect(),m=$('m').getBoundingClientRect();tip.textContent=txt;
   tip.style.display='block';tip.style.left=m.right+10+'px';tip.style.top=r.top+'px'};el.onmouseleave=()=>tip.style.display='none'}
 const fmt=(v,s)=>(+v).toFixed(s<1?(s<.1?2:1):0);
 function draw(){
-  $('tabs').innerHTML='';for(const t of [...Object.keys(G),'KEYS']){const b=document.createElement('button');b.className='tab'+(t===tab?' on':'');
+  const tabs=canEdit()?[...Object.keys(G),'KEYS']:['KEYS'];if(!tabs.includes(tab))tab=tabs[0]; // clients only ever see KEYS
+  $('tabs').style.display=tabs.length>1?'flex':'none';$('tabs').innerHTML='';for(const t of tabs){const b=document.createElement('button');b.className='tab'+(t===tab?' on':'');
     b.textContent=t;b.onclick=()=>{tab=t;draw()};$('tabs').appendChild(b)}
   const B=$('body');B.innerHTML='';tip.style.display='none';
   if(tab==='KEYS'){for(const a in kb){const r=document.createElement('div');r.className='row top';r.innerHTML=`<span class=nm>${NAMES[a]}</span>`;
@@ -159,22 +163,25 @@ function draw(){
     const i=r.querySelector('input'),v=r.querySelector('span:not(.nm)'),[m,p]=r.querySelectorAll('button');
     const set=(x,sv)=>{x=Math.min(b,Math.max(a,+x));o[k]=Math.round(x/s)*s;o[k]=+o[k].toFixed(3);if(sv)persist(o);i.value=o[k];v.textContent=fmt(o[k],s)+(k==='regen'?'s':'');i.style.setProperty('--p',(o[k]-a)/(b-a)*100+'%')};
     set(o[k]);i.oninput=()=>set(i.value,1);i.onchange=()=>i.blur();m.onclick=()=>set(o[k]-s,1);p.onclick=()=>set(o[k]+s,1);B.appendChild(r)}}
-const canEdit=()=>mode==='offline'||net.role==='host'; // settings are host-only (clients never see the panel)
-const applyPanel=()=>{const ce=canEdit();$('m').style.display=ce&&panelOpen?'flex':'none';$('open').style.display=ce&&!panelOpen?'block':'none';tip.style.display='none'};
-const toggle=()=>{if(!canEdit())return;panelOpen=!panelOpen;applyPanel()};
+const canEdit=()=>mode==='offline'||net.role==='host'; // game rules / balance: host (or offline) only
+const applyPanel=()=>{const ce=canEdit(),sig=ce?'H':'C';
+  if(sig!==drawSig){drawSig=sig;$('mt').textContent=ce?'LOBBY SETTINGS':'CONTROLS';$('rst').style.display=ce?'':'none';$('open').textContent=ce?'SETTINGS · H':'CONTROLS · H';draw()}
+  $('m').style.display=panelOpen?'flex':'none';$('open').style.display=panelOpen?'none':'block';tip.style.display='none'};
+const toggle=()=>{panelOpen=!panelOpen;applyPanel()}; // everyone may open it; clients only see KEYS
 $('cls').onclick=$('open').onclick=toggle;$('rst').onclick=()=>{Sim.resetConfig();draw();cfgSoon()};draw();applyPanel();
 // ---- world (compact arena, tight ramps, floating hex platforms) ----
 // 4-fold pinwheel: each ramp sits 21u behind its mid platform (clockwise tangent); high tier at center, 5 ramps total
 const RAMPS=[[0,0],[-21,24],[24,21],[21,-24],[-24,-21]].map(([x,z])=>({x,z,hw:5.5,h:3.5})),
   PLATS=[{x:0,z:24,r:7,top:8.5,o:0},{x:24,z:0,r:7,top:8.5,o:1},{x:0,z:-24,r:7,top:8.5,o:0},{x:-24,z:0,r:7,top:8.5,o:1},{x:0,z:0,r:5,top:17.5,o:0,tier:'high'}];
 // 4-fold symmetric starting pads on a ring (x,z,yaw), all facing the center
-const PADS=[[0,-34,0],[34,0,-Math.PI/2],[0,34,Math.PI],[-34,0,Math.PI/2]],PADORDER=[0,2,1,3],COLORS=[0x3aa0ff,0xf2a33a,0xb26cf0,0x4cc46a],spec={i:0};
+const PADS=Array.from({length:8},(_,k)=>{const a=k*Math.PI/4,rad=k%2?38.5:34,x=+(rad*Math.sin(a)).toFixed(2),z=+(-rad*Math.cos(a)).toFixed(2);return[x,z,Math.atan2(-x,-z)]}), // 8 symmetric pads facing the center
+  PADORDER=[0,4,2,6,1,5,3,7],COLORS=[0x3aa0ff,0xf2a33a,0xb26cf0,0x4cc46a,0xe5534b,0x2ee6c8,0xf06fc0,0xc8d34a],spec={i:0};
 const pad=(i,id,m,drive,decay)=>Sim.car(id,PADS[i][0],PADS[i][1],PADS[i][2],m,drive,decay);
-function buildWorld(roster,bots){const w=Sim.create({radius:36,ramps:RAMPS,plats:PLATS}); // players spread to opposite pads first
-  roster.forEach((r,i)=>{const c=pad(PADORDER[i],r.id,1);c.name=r.name;c.ci=i;w.cars.push(c)});
-  if(bots){const b1=pad(2,'d1',1,false,false),b2=pad(1,'d2',2,false,false);b1.name='BOT 1';b1.ci=1;b2.name='BOT 2';b2.ci=2;w.cars.push(b1,b2)}
+function buildWorld(roster,nBots=0){const w=Sim.create({radius:36,ramps:RAMPS,plats:PLATS}); // players spread to opposite pads first, then bots
+  roster.slice(0,8).forEach((r,i)=>{const c=pad(PADORDER[i],r.id,1);c.name=r.name;c.ci=i;w.cars.push(c)});
+  for(let j=0;j<nBots&&w.cars.length<8;j++){const i=w.cars.length,c=pad(PADORDER[i],'b'+(j+1),1);c.bot=true;c.name='BOT '+(j+1);c.ci=i;w.cars.push(c)}
   return w}
-const mk=()=>buildWorld([{id:'p',name:myName()}],true);
+const mk=()=>buildWorld([{id:'p',name:myName()}],Math.max(0,C.maxPlayers-1)); // offline practice: you + bots up to Max players
 let w=mk();
 // ---- render ----
 const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setSize(innerWidth,innerHeight);document.body.appendChild(renderer.domElement);
@@ -195,7 +202,7 @@ function initTiles(){anim=[];rise=[];for(const t of w.list){t._h=false;setM(t,-.
 initTiles();let bnUntil=0,seenOver=false;
 const reset=()=>{Sim.resetRound(w);for(const c of w.cars){c.px=c.x;c.py=c.y;c.pz=c.z;c.pyaw=c.yaw}initTiles();seenOver=false;bnUntil=0;spec.i=0;
   if(net.role==='host'){bcast({k:'reset'});net.d.ts.clear();net.d.os.clear();net.sendT=1}};
-const doReset=()=>{if(mode==='offline'||(mode==='host'&&net.role==='host'))reset()}; // only the host (or offline) can start a new round
+const doReset=()=>{if(mode==='offline'||(mode==='host'&&net.role==='host'&&net.live))reset()}; // only the host (or offline) can start a new round
 $('nr').onclick=doReset;$('nr').onfocus=e=>e.target.blur();
 for(const r of RAMPS){const m=new THREE.Mesh(new THREE.ConeGeometry(r.hw*Math.SQRT2,r.h,4),mat(0xe39b2d));
   m.rotation.y=Math.PI/4;m.position.set(r.x,r.h/2,r.z);sc.add(m)}
@@ -258,6 +265,9 @@ let acc=0,last=performance.now(),fps=60,sbHtml='',hudKey='',lastIn='',lastInT=0;
 const me=()=>w.cars.find(c=>c.id===net.myId)||w.cars[0];
 const nameOf=id=>(w.cars.find(c=>c.id===id)||{}).name||id;
 const steerNow=()=>(held('right')?1:0)-(held('left')?1:0);
+const inter=()=>(mode==='host'||mode==='client')&&!net.live;   // post-match intermission: lobby again, same room
+const overlayOn=()=>mode==='lobby'||inter();
+const rosterOut=()=>net.roster.map(r=>({...r,sc:((net.live?w.scores:net.scores)||{})[r.id]||0}));
 function buildInputs(){const I={};I[net.myId]={steer:steerNow(),jump:jl,power:pl}; // fresh-press edges only
   if(net.role==='host')for(const id in net.inp){const r=net.inp[id],e={steer:r.s};if(r.j>r.sj){e.jump=true;r.sj++}if(r.p>r.sp){e.power=true;r.sp++}I[id]=e}
   return I}
@@ -295,42 +305,52 @@ function clientTick(now){const S=net.snaps;if(!S.length)return;const lt=S[S.leng
 function sendInput(now){const s=steerNow(),k=s+','+jc+','+pc;
   if(k!==lastIn||now-lastInT>100){lastIn=k;lastInT=now;try{net.hostConn.send({k:'in',s,j:jc,p:pc})}catch(e){}}}
 // ---- lobby / connection handling ----
-const msg=s=>{$('lmsg').textContent=s||''};
+const msg=(s,err)=>{$('lmsg').textContent=s||'';$('lmsg').className=err?'err':''};
 const codeChars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const genCode=()=>Array.from({length:4},()=>codeChars[Math.floor(Math.random()*codeChars.length)]).join('');
 const saveName=()=>{try{localStorage.pname=myName()}catch(e){}};
 try{$('pname').value=localStorage.pname||''}catch(e){}
-function setMode(m){mode=m;document.body.className=m;$('lobby').style.display=m==='lobby'?'flex':'none';applyPanel()}
+function refreshOverlay(){const on=overlayOn();$('lobby').style.display=on?'flex':'none';document.body.className=(on?'lobby ':'')+mode;applyPanel()}
+function setMode(m){mode=m;refreshOverlay()}
 function enterGame(m){clearCars();initTiles();spec.i=0;seenOver=false;bnUntil=0;net.snaps=[];setMode(m)}
-function updateLobby(){const ro=net.roster;
-  $('plist').innerHTML=ro.map((r,i)=>`<div class=pl><i style="background:${hx(COLORS[i%4])}"></i>${esc(r.name)}${r.id==='p'?'<small>HOST</small>':r.id===net.myId?'<small>YOU</small>':''}</div>`).join('');
-  $('room').style.display=net.role==='host'?'block':'none';$('room').innerHTML=net.role==='host'?`ROOM ID<b>${net.code}</b>Friends enter this code to join`:'';
-  $('startBtn').style.display=net.role==='host'&&ro.length>=2&&!net.started?'block':'none'}
-function leaveNet(){try{net.peer&&net.peer.destroy()}catch(e){}net.peer=null;net.hostConn=null;net.conns={};net.roster=[];net.role='none';net.started=false;net.myId='p';net.inp={};net.cn=0;
+function updateLobby(){const ro=net.role==='host'?rosterOut():net.roster,inRoom=net.role!=='none';
+  $('plist').innerHTML=ro.map((r,i)=>`<div class=pl><i style="background:${hx(COLORS[i%8])}"></i>${esc(r.name)}${r.sc?' <b>'+r.sc+'</b>':''}${r.id==='p'?'<small>HOST</small>':r.id===net.myId?'<small>YOU</small>':''}</div>`).join('');
+  $('room').style.display=net.code&&inRoom?'block':'none';$('room').innerHTML=net.code&&inRoom?`ROOM ID<b>${net.code}</b>${net.role==='host'?'Friends enter this code to join':'Share this code so friends can join'}`:'';
+  $('cap').textContent=inRoom?`PLAYERS ${ro.length}/${C.maxPlayers}${C.fillBots&&net.role==='host'?' · empty slots filled with bots':''}`:'';
+  $('cols').style.display=inRoom?'none':'grid';$('pname').readOnly=inRoom;
+  $('startBtn').style.display=net.role==='host'&&!net.live&&(ro.length>=2||(C.fillBots&&C.maxPlayers>=2))?'block':'none'}
+function leaveNet(){try{net.peer&&net.peer.destroy()}catch(e){}net.peer=null;net.hostConn=null;net.conns={};net.roster=[];net.role='none';net.live=false;net.code='';net.scores={};net.interAt=0;net.myId='p';net.inp={};net.cn=0;
   $('hostBtn').disabled=$('joinBtn').disabled=false;updateLobby();applyPanel()}
 function hostGame(tries=0){
   if(typeof Peer==='undefined'){msg('PeerJS failed to load - check your connection.');return}
   saveName();$('hostBtn').disabled=$('joinBtn').disabled=true;msg('Creating room…');
   const code=genCode(),peer=new Peer('rsr-'+code);net.peer=peer;
-  peer.on('open',()=>{net.role='host';net.code=code;net.myId='p';net.roster=[{id:'p',name:myName()}];net.started=false;panelOpen=true;msg('Room ready. Share the Room ID, then start when everyone has joined.');updateLobby();applyPanel()});
+  peer.on('open',()=>{net.role='host';net.code=code;net.myId='p';net.roster=[{id:'p',name:myName()}];net.live=false;net.scores={};panelOpen=true;msg('Room ready. Share the Room ID, then start when everyone has joined.');updateLobby();applyPanel()});
   peer.on('error',e=>{if(e.type==='unavailable-id'&&tries<5){try{peer.destroy()}catch(_){}hostGame(tries+1);return}msg('Network error: '+e.type);leaveNet()});
   peer.on('connection',hostAccept)}
 function hostAccept(conn){let id=null;
   conn.on('data',d=>{if(!d||typeof d!=='object')return;
     if(d.k==='hello'&&!id){
-      if(net.started||net.roster.length>=4){try{conn.send({k:'reject',why:net.started?'Match already started':'Room is full'})}catch(e){}setTimeout(()=>{try{conn.close()}catch(e){}},300);return}
+      if(net.live||net.roster.length>=C.maxPlayers){const why=net.live?'Match in Progress':`Lobby Full (${net.roster.length}/${C.maxPlayers})`;try{conn.send({k:'reject',why})}catch(e){}setTimeout(()=>{try{conn.close()}catch(e){}},300);return}
       id='c'+(++net.cn);const base=cleanName(d.name);let name=base,n=2;while(net.roster.some(r=>r.name===name))name=cleanName(base.slice(0,11))+' '+n++;
       net.roster.push({id,name});net.conns[id]=conn;net.inp[id]={s:0,j:0,p:0,sj:0,sp:0};
-      conn.send({k:'welcome',id,cfg:{...C},roster:net.roster}); // one-time full config sync: the client now plays by the host's rules
-      bcast({k:'roster',roster:net.roster});updateLobby()}
+      conn.send({k:'welcome',id,cfg:{...C},roster:rosterOut(),code:net.code}); // one-time full config sync: the client now plays by the host's rules
+      bcast({k:'roster',roster:rosterOut(),code:net.code});updateLobby()}
     else if(d.k==='in'&&id&&net.inp[id]){const r=net.inp[id];r.s=Math.max(-1,Math.min(1,+d.s||0));r.j=Math.max(r.j,d.j|0);r.p=Math.max(r.p,d.p|0)}});
   conn.on('close',()=>{if(!id)return;delete net.conns[id];delete net.inp[id];
-    if(net.started){const c=w.cars.find(c=>c.id===id);if(c){c.alive=false;c.vx=c.vy=c.vz=0}}
-    else{net.roster=net.roster.filter(r=>r.id!==id);bcast({k:'roster',roster:net.roster});updateLobby()}})}
-function startMatch(){if(net.role!=='host'||net.roster.length<2||net.started)return;net.started=true;
+    if(net.live){const c=w.cars.find(c=>c.id===id);if(c){c.alive=false;c.vx=c.vy=c.vz=0}}
+    else{net.roster=net.roster.filter(r=>r.id!==id);bcast({k:'roster',roster:rosterOut(),code:net.code});updateLobby()}})}
+function startMatch(){
+  const canStart=net.roster.length>=2||(C.fillBots&&C.maxPlayers>=2);
+  if(net.role!=='host'||net.live||!canStart)return;
+  const nb=C.fillBots?Math.max(0,Math.min(8,C.maxPlayers)-net.roster.length):0;
   for(const id in net.inp)net.inp[id]={s:0,j:0,p:0,sj:0,sp:0};
-  w=buildWorld(net.roster);jc=pc=0;jl=pl=false;net.sendT=1;net.d.ts.clear();net.d.os.clear();net.d.ev=[];enterGame('host');
-  bcast({k:'start',roster:net.roster,cfg:{...C}})}
+  w=buildWorld(net.roster,nb);w.scores={...net.scores}; // brand-new arena + brand-new cars on clean pads for EVERYONE; scores carry over
+  net.live=true;net.interAt=0;jc=pc=0;jl=pl=false;net.sendT=1;net.d.ts.clear();net.d.os.clear();net.d.ev=[];
+  enterGame('host');msg('');bcast({k:'start',roster:rosterOut(),bots:nb,cfg:{...C}})}
+function enterIntermission(){net.live=false;net.interAt=0;net.scores={...w.scores};
+  net.roster=net.roster.filter(r=>r.id==='p'||net.conns[r.id]); // players who left during the round are dropped
+  bcast({k:'inter',roster:rosterOut(),code:net.code});msg('Round over. New players can join with the Room ID; the host starts the next match.');updateLobby();refreshOverlay()}
 function joinGame(){const code=$('joinCode').value.trim().toUpperCase();
   if(code.length<4){msg('Enter the 4-letter Room ID.');return}
   if(typeof Peer==='undefined'){msg('PeerJS failed to load - check your connection.');return}
@@ -344,23 +364,26 @@ function joinGame(){const code=$('joinCode').value.trim().toUpperCase();
     conn.on('data',clientData);conn.on('close',hostGone)})}
 function hostGone(){if(net.role!=='client')return;leaveNet();w=mk();clearCars();initTiles();setMode('lobby');msg('Host disconnected.')}
 function clientData(d){if(!d||typeof d!=='object')return;
-  if(d.k==='welcome'){net.myId=d.id;net.roster=d.roster;Object.assign(C,d.cfg);updateLobby()} // overwrite local settings with the host's
-  else if(d.k==='roster'){net.roster=d.roster;updateLobby()}
-  else if(d.k==='cfg')Object.assign(C,d.cfg);
-  else if(d.k==='reject'){msg(d.why);leaveNet()}
-  else if(d.k==='start'){Object.assign(C,d.cfg);net.roster=d.roster;w=buildWorld(d.roster);jc=pc=0;jl=pl=false;enterGame('client')}
+  if(d.k==='welcome'){net.myId=d.id;net.roster=d.roster;net.code=d.code;Object.assign(C,d.cfg);updateLobby()} // overwrite local settings with the host's
+  else if(d.k==='roster'){net.roster=d.roster;if(d.code)net.code=d.code;updateLobby()}
+  else if(d.k==='inter'){net.live=false;net.roster=d.roster;net.code=d.code;updateLobby();refreshOverlay();msg('Round over. Waiting for the host to start the next match…')}
+  else if(d.k==='cfg'){Object.assign(C,d.cfg);updateLobby()}
+  else if(d.k==='reject'){leaveNet();msg(d.why,true)}
+  else if(d.k==='start'){Object.assign(C,d.cfg);net.roster=d.roster;w=buildWorld(d.roster,d.bots|0);net.live=true;jc=pc=0;jl=pl=false;enterGame('client');msg('')}
   else if(d.k==='reset'){Sim.resetRound(w);net.snaps=[];initTiles();spec.i=0;seenOver=false;bnUntil=0}
-  else if(d.k==='s'&&mode==='client')applySnap(d)}
+  else if(d.k==='s'&&mode==='client'&&net.live)applySnap(d)}
 $('hostBtn').onclick=()=>hostGame();$('joinBtn').onclick=joinGame;$('startBtn').onclick=startMatch;
 $('joinCode').onkeydown=e=>{if(e.key==='Enter')joinGame()};
 $('practice').onclick=()=>{saveName();net.role='none';net.myId='p';w=mk();panelOpen=true;enterGame('offline')};
 // ---- frame ----
 function frame(now){const fd=Math.min((now-last)/1000,.1);last=now;fps+=(1/fd-fps)*.05;
-  if(mode==='offline'||mode==='host'){acc+=fd;
+  if(mode==='offline'||(mode==='host'&&net.live)){acc+=fd;
     while(acc>=DT){for(const c of w.cars){c.px=c.x;c.py=c.y;c.pz=c.z;c.pyaw=c.yaw}
       Sim.step(w,buildInputs(),DT);jl=false;pl=false;acc-=DT}
     if(mode==='host'){netCollect();net.sendT+=fd;if(net.sendT>=.04){net.sendT=0;bcast(snapshot())}}
-  }else{acc=0;jl=false;pl=false;if(mode==='client'){clientTick(now);sendInput(now)}}
+  }else{acc=0;jl=false;pl=false;if(mode==='client'&&net.live){clientTick(now);sendInput(now)}}
+  // when the winner banner has been shown, return everyone to the lobby (same room) for the next match
+  if(mode==='host'&&net.live&&w.round.phase==='over'){if(!net.interAt)net.interAt=now+4000;else if(now>=net.interAt)enterIntermission()}else net.interAt=0;
   const a=acc/DT,L=(u,v)=>u+(v-u)*a;let ch=false;
   for(const t of w.redLog){im.setColorAt(t.i,col.setHex(RED));ch=true}
   for(const t of w.fallLog)anim.push(t);
@@ -381,7 +404,7 @@ function frame(now){const fd=Math.min((now-last)/1000,.1);last=now;fps+=(1/fd-fp
     u.gh.visible=gt;u.sd.visible=c.shield>0;if(c.shield>0)u.sd.material.opacity=.12+.07*c.shield;u.sm.visible=c.smashT>0});
   // camera: always the LOCAL player's car (host or client); spectates a survivor once eliminated
   const p=me(),al=w.cars.map((c,i)=>i).filter(i=>w.cars[i].alive),cd=view.cam;
-  const ti=mode==='lobby'?-1:p.alive?w.cars.indexOf(p):al.length?al[((spec.i%al.length)+al.length)%al.length]:-1;
+  const ti=overlayOn()?-1:p.alive?w.cars.indexOf(p):al.length?al[((spec.i%al.length)+al.length)%al.length]:-1;
   if(ti<0){const a2=now*.0003;cam.position.lerp(new THREE.Vector3(Math.cos(a2)*55,38,Math.sin(a2)*55),1-Math.exp(-3*fd));cam.lookAt(0,0,0)}
   else{const g=carMesh(w.cars[ti]),yw=g.rotation.y,fx=Math.sin(yw),fz=Math.cos(yw),q=g.position,k=p.alive?1:1.7;
     cam.position.lerp(new THREE.Vector3(q.x-fx*cd*k,q.y+cd*.55*k,q.z-fz*cd*k),1-Math.exp(-8*fd));cam.lookAt(q.x+fx*6,q.y+1,q.z+fz*6)}
@@ -391,7 +414,7 @@ function frame(now){const fd=Math.min((now-last)/1000,.1);last=now;fps+=(1/fd-fp
   for(const c of w.cars){let tg=tags[c.id];
     if(!tg){tg=document.createElement('div');tg.className='tag';tg.style.setProperty('--c',hx(COLORS[(c.ci||0)%4]));$('tags').appendChild(tg);tags[c.id]=tg}
     if(tg._n!==c.name){tg._n=c.name;tg.textContent=c.name}
-    let vis=mode!=='lobby'&&c.alive&&c.id!==p.id;
+    let vis=!overlayOn()&&c.alive&&c.id!==p.id;
     if(vis){const g=carMesh(c);tv.set(g.position.x,g.position.y+2.4,g.position.z).project(cam);vis=tv.z<1&&tv.z>-1&&Math.abs(tv.x)<1.2&&Math.abs(tv.y)<1.2;
       if(vis)tg.style.transform=`translate(${(tv.x*W2+W2).toFixed(0)}px,${(H2-tv.y*H2).toFixed(0)}px) translate(-50%,-100%)`}
     tg.style.display=vis?'block':'none'}
@@ -414,10 +437,10 @@ function frame(now){const fd=Math.min((now-last)/1000,.1);last=now;fps+=(1/fd-fp
   const fv=72+(pk.boostT>0?12:0);if(Math.abs(cam.fov-fv)>.05){cam.fov+=(fv-cam.fov)*(1-Math.exp(-8*fd));cam.updateProjectionMatrix()}
   const rd=w.round;if(rd.phase==='over'&&!seenOver){seenOver=true;bnUntil=now+3500}if(rd.phase==='play')seenOver=false;
   const bn=$('bn');if(now<bnUntil){bn.style.display='block';bn.innerHTML=rd.winner?`ROUND WINNER<small>${esc(nameOf(rd.winner))} · +1 point</small>`:'DRAW<small>no survivors</small>'}else bn.style.display='none';
-  const sp=$('sp');sp.style.display=p.alive||mode==='lobby'?'none':'block';sp.textContent=p.alive?'':`ELIMINATED · spectating${al.length&&ti>=0?' · '+w.cars[ti].name:''} · ${kb.left[0].replace('Key','')}/${kb.right[0].replace('Key','')} switch`;
+  const sp=$('sp');sp.style.display=p.alive||overlayOn()?'none':'block';sp.textContent=p.alive?'':`ELIMINATED · spectating${al.length&&ti>=0?' · '+w.cars[ti].name:''} · ${kb.left[0].replace('Key','')}/${kb.right[0].replace('Key','')} switch`;
   const sh=w.cars.map(c=>`<span class="${c.id===net.myId?'you':''} ${c.alive?'':'out'}">${esc(c.name||c.id)}<b>${w.scores[c.id]||0}</b></span>`).join('');
   if(sh!==sbHtml){sbHtml=sh;$('sb').innerHTML=sh}
-  $('h').textContent=`${p.alive?{G:'GROUND',J:'JUMP',F:'FLIGHT',D:'DROP',X:'FALLING',C:'COYOTE'}[p.st]:'ELIMINATED'} · ${Math.hypot(p.vx,p.vz).toFixed(0)} u/s · alt ${p.y.toFixed(1)}\n${fps.toFixed(0)} fps · ${mode==='client'?'CLIENT (host settings)':mode==='host'?'HOST · '+(net.roster.length)+' players':'offline'}\njump: ${p.ev||'-'} · air ${p.gs}f\n${canEdit()?'R new round · H settings':'host controls settings & rounds'}`;
+  $('h').textContent=`${p.alive?{G:'GROUND',J:'JUMP',F:'FLIGHT',D:'DROP',X:'FALLING',C:'COYOTE'}[p.st]:'ELIMINATED'} · ${Math.hypot(p.vx,p.vz).toFixed(0)} u/s · alt ${p.y.toFixed(1)}\n${fps.toFixed(0)} fps · ${mode==='client'?'CLIENT · ROOM '+net.code:mode==='host'?'HOST · ROOM '+net.code+' · '+net.roster.length+'/'+C.maxPlayers:'offline'}\njump: ${p.ev||'-'} · air ${p.gs}f\n${canEdit()?'R new round · H settings':'H controls · host sets the rules'}`;
   $('h').style.display=view.hud?'block':'none';
   renderer.render(sc,cam);requestAnimationFrame(frame)}
 updateLobby();setMode('lobby');requestAnimationFrame(frame);
