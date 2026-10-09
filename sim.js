@@ -7,6 +7,8 @@
     speedToForceRatio: 0.5,    // extra force per unit of the ATTACKER's speed toward the target
     defenderKnockbackMult: 2.2, // multiplier on that force, applied to the DEFENDER's velocity
     attackerRecoil: 0.20,      // share of the attacker's forward speed lost on impact (0.20 = keeps 80%)
+    // ---- LOBBY / BOTS ----
+    maxPlayers: 4, fillBots: false, botAI: true, // host lobby capacity (2-8), fill empty slots with bots at match start, bots drive (false = static test dummies)
     // ---- POWER-UPS ----
     puOn: true, puMax: 3, pickupSpawnMinDelay: 4.5, pickupSpawnMaxDelay: 8.0, invMax: 3, invDup: true, allowDuplicatePassives: false, // board cap, spawn delay range (s), inventory size
     smashMass: 1.5, smashBump: 1.5, powerSmashDuration: 10,      // Power Smash: mass x, bump force x, duration (s)
@@ -87,7 +89,7 @@
   // gs=frames since last grounded, hopped=ground jump used this flight, buf=frames left on buffered press, ev=last jump decision
   // decay=false (dummy bots) -> this car never triggers tile decay
   const car = (id, x, z, yaw, mass, drive = true, decay = true) => ({ id, x, y: 0, z, vx: 0, vy: 0, vz: 0, yaw, mass, drive, decay,
-    st: 'G', gs: 0, ev: '', evT: 0, buf: 0, bcd: 0, alive: true, sp: { x, z, yaw }, inv: [], smashT: 0, shield: 0, boostT: 0, ghostT: 0, oilT: 0, slick: 0, roll: 0, rollT: -1, rollDir: 0, rise: 0 });
+    st: 'G', gs: 0, ev: '', evT: 0, buf: 0, bcd: 0, bot: false, ai: null, alive: true, sp: { x, z, yaw }, inv: [], smashT: 0, shield: 0, boostT: 0, ghostT: 0, oilT: 0, slick: 0, roll: 0, rollT: -1, rollDir: 0, rise: 0 });
 
   function create(o = {}) {
     const w = { t: 0, cfg: C, tiles: new Map(), list: [], active: [], queue: [], qh: 0, redLog: [], fallLog: [], regenLog: [],
@@ -170,6 +172,103 @@
     if (c.inv.length >= K.invMax || (!K.invDup && c.inv.includes(type))) return false;
     c.inv.push(type); return true;
   }
+  const canCollect = (K, c, type) => type === 'smash' ? (c.smashT <= 0 || K.allowDuplicatePassives)
+    : type === 'shield' ? (c.shield <= 0 || K.allowDuplicatePassives)
+    : c.inv.length < K.invMax && (K.invDup || !c.inv.includes(type));
+
+  // ---------------- BOT AI (practice mode / lobby fill) ----------------
+  // Runs inside the sim (deterministic, no Math.random): goals = nearby foe to ram / nearest ground coin / orbit the center,
+  // steering = safest heading near the goal (avoids red, fallen and void tiles), items used contextually.
+  const EMPTY_IN = {};
+  const wrapPi = a => { a %= 2 * Math.PI; return a > Math.PI ? a - 2 * Math.PI : a < -Math.PI ? a + 2 * Math.PI : a; };
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  function hazardAt(w, x, z, me) { // 0 safe, 0.8 enemy oil, 1.5 warning-red, 2 void / gone
+    const t = w.tiles.get(key(...xzHex(x, z)));
+    if (!t || t.s === 2) return 2;
+    if (t.s === 1) return 1.5;
+    if (t.o && t.o !== me.id && !t.oh.includes(me.id)) return 0.8;
+    if (Math.max(Math.abs(t.q), Math.abs(t.r), Math.abs(t.q + t.r)) >= 33) return 0.7; // rim of the arena: keep a safety margin
+    return 0;
+  }
+  const onRamp = (w, x, z) => w.ramps.some(p => Math.max(Math.abs(x - p.x), Math.abs(z - p.z)) < p.hw + 1);
+  function pickGoal(w, c, opps) {
+    let foe = null, fs = 1e9;
+    for (const o of opps) {
+      if (o.ghostT > 0 || (o.shield > 0 && c.smashT <= 0)) continue; // can't hurt ghosts; shields just bounce us
+      const d = Math.hypot(o.x - c.x, o.z - c.z), q = d - 0.5 * Math.max(0, Math.hypot(o.x, o.z) - 14); // prefer foes near the edge
+      if (d < 36 && q < fs) { fs = q; foe = o; }
+    }
+    let coin = null, cd = 1e9;
+    for (const it of w.items) { // ground coins only (bots don't climb ramps / platforms)
+      if (it.y - 1.3 > 0.5 || !canCollect(w.cfg, c, it.type) || hazardAt(w, it.x, it.z, c) >= 0.7 || onRamp(w, it.x, it.z)) continue;
+      const d = Math.hypot(it.x - c.x, it.z - c.z); if (d < cd) { cd = d; coin = it; }
+    }
+    if (foe && Math.hypot(foe.x - c.x, foe.z - c.z) < 12) return { k: 'ram', id: foe.id };
+    if (coin) return { k: 'coin', id: coin.id, x: coin.x, z: coin.z };
+    if (foe) return { k: 'ram', id: foe.id };
+    return null;
+  }
+  // Wander goal: the open patch of solid floor (no red / fallen / ramp tiles around it) that is close and roughly ahead.
+  function safeSpot(w, c) {
+    let best = null, bq = -1e9;
+    for (const r of [8, 16, 24, 31]) for (let k = 0; k < 16; k++) {
+      const a = k * Math.PI / 8, x = Math.sin(a) * r, z = Math.cos(a) * r;
+      let ok = 0; for (let i = 0; i < 9; i++) { const px = x + (i % 3 - 1) * 4.5, pz = z + (Math.floor(i / 3) - 1) * 4.5; ok += hazardAt(w, px, pz, c) === 0 && !onRamp(w, px, pz) ? 1 : 0; }
+      const d = Math.hypot(x - c.x, z - c.z), brg = Math.abs(wrapPi(Math.atan2(x - c.x, z - c.z) - c.yaw));
+      const q = ok * 3 - Math.abs(d - 24) * 0.12 - brg * 1.1 - Math.max(0, r - 28) * 0.4;
+      if (d > 6 && q > bq) { bq = q; best = { x, z }; }
+    }
+    return best;
+  }
+  function shouldUse(w, c, type, opps, err, ai, foe) {
+    const K = w.cfg; if (!opps.length) return false;
+    const live = opps.filter(o => o.ghostT <= 0), near = r => live.filter(o => Math.hypot(o.x - c.x, o.z - c.z) < r), stale = ai.hold > 5; // unused too long -> just use it
+    if (type === 'shock') return near(K.shockwaveRadius * 0.4).length > 0 || near(K.shockwaveRadius * 0.7).length > 1 || (stale && near(K.shockwaveRadius).length > 0);
+    if (type === 'boost') { const d = foe ? Math.hypot(foe.x - c.x, foe.z - c.z) : 0; return (d > 6 && d < 22 && Math.abs(err) < 0.25) || stale; }
+    if (type === 'collapse') return near(48).length > 0 || stale;
+    if (type === 'oil') { const fx = Math.sin(c.yaw), fz = Math.cos(c.yaw); // someone chasing us
+      return (c.st === 'G' && live.some(o => { const dx = o.x - c.x, dz = o.z - c.z, d = Math.hypot(dx, dz); return d < 22 && d > 3 && (dx * fx + dz * fz) / d < -0.3; })) || stale; }
+    if (type === 'ghost') return c.ghostT <= 0 && (live.some(o => { const dx = c.x - o.x, dz = c.z - o.z, d = Math.hypot(dx, dz); if (d > 12 || d < 0.1) return false; return (o.vx * dx + o.vz * dz) / d > 10 || (o.smashT > 0 && d < 10); }) || stale);
+    return false;
+  }
+  function botInput(w, c, dt) {
+    const K = w.cfg;
+    if (!K.botAI) { c.drive = false; c.decay = false; return EMPTY_IN; } // static test dummy
+    c.drive = true; c.decay = true;
+    const ai = c.ai || (c.ai = { t: 0, goal: null, cd: 0, hold: 0, jt: 0, ls: 0, wp: null, wt: 0, seed: [...c.id].reduce((a, ch) => a + ch.charCodeAt(0), 0) % 97 });
+    const out = { steer: 0 };
+    ai.cd = Math.max(0, ai.cd - dt); ai.jt = Math.max(0, ai.jt - dt); ai.t -= dt;
+    const opps = w.cars.filter(o => o !== c && o.alive), spd = Math.max(Math.hypot(c.vx, c.vz), K.speed * 0.8);
+    if (ai.t <= 0) { ai.t = 0.12; ai.goal = pickGoal(w, c, opps); } // replan ~8x/s
+    const g = ai.goal, foe = g && g.k === 'ram' ? w.cars.find(o => o.id === g.id && o.alive) : null; let ax, az;
+    if (foe) { ax = foe.x + foe.vx * 0.3; az = foe.z + foe.vz * 0.3; } // lead the target
+    else if (g && g.k === 'coin' && w.items.some(i => i.id === g.id)) { ax = g.x; az = g.z; }
+    else { // wander toward the safest open ground (away from its own fallen / red trail)
+      if (!ai.wp || ai.wt <= 0 || Math.hypot(ai.wp.x - c.x, ai.wp.z - c.z) < 5) { ai.wp = safeSpot(w, c) || { x: 0, z: 0 }; ai.wt = 0.6; }
+      ai.wt -= dt; ax = ai.wp.x; az = ai.wp.z;
+    }
+    // Arc planner: roll the car forward ~1.5 s for each steering value (respects the real turning circle),
+    // penalize red / fallen / void tiles (and ramps, unless the goal is on one), reward ending up pointed at the goal.
+    const rampPen = !onRamp(w, ax, az); let bs = 0, bq = 1e9, bhz = 0;
+    for (const st of [-1, -0.7, -0.4, -0.15, 0, 0.15, 0.4, 0.7, 1]) {
+      let x = c.x, z = c.z, h = c.yaw, vx = c.vx, vz = c.vz, hz = 0, dm = 1e9;
+      for (let k = 1; k <= 30; k++) { // 1.5 s in 0.05 s steps, same steering + grip model as the real car (so drift is accounted for)
+        h -= st * K.steer * 0.05; const gk = Math.min(1, (c.st === 'G' ? K.grip : K.air) * 0.05);
+        vx += (Math.sin(h) * spd - vx) * gk; vz += (Math.cos(h) * spd - vz) * gk; x += vx * 0.05; z += vz * 0.05;
+        if (k % 3 === 0) { hz += (hazardAt(w, x, z, c) + (rampPen && onRamp(w, x, z) ? 1 : 0)) * (1.4 - k / 3 * 0.08); dm = Math.min(dm, Math.hypot(ax - x, az - z)); }
+      }
+      const dev = Math.abs(wrapPi(Math.atan2(vx, vz) - Math.atan2(ax - x, az - z))), q = hz * 10 + dm * 0.35 + Math.hypot(ax - x, az - z) * 0.1 + dev * 0.5 + Math.abs(st - ai.ls) * 0.15; // closest approach + final distance stop 'circle forever' plans
+      if (q < bq) { bq = q; bs = st; bhz = hz; }
+    }
+    out.steer = bs; ai.ls = bs;
+    const err = wrapPi(Math.atan2(ax - c.x, az - c.z) - c.yaw);
+    if (c.st === 'G' && bhz >= 7 && ai.jt <= 0) { out.jump = true; ai.jt = 0.3; }                             // boxed in by holes: hop...
+    else if (c.st === 'J' && c.gs > K.flightLock + 1 && bhz >= 5 && ai.jt <= 0) { out.jump = true; ai.jt = 1; } // ...then glide across
+    if (c.inv.length && ai.cd <= 0) { ai.hold += dt; if (shouldUse(w, c, c.inv[0], opps, err, ai, foe)) { out.power = true; ai.cd = 0.9; ai.hold = 0; } }
+    else if (!c.inv.length) ai.hold = 0;
+    return out;
+  }
+
   function itemsStep(w) {
     const K = w.cfg;
     for (const t of w.oilList.slice()) if (w.t > t.ot) clearTile(w, t);
@@ -316,7 +415,7 @@
   function step(w, inputs, dt) {
     const K = w.cfg, cs = w.cars;
     w.t += dt;
-    for (const c of cs) if (c.alive) stepCar(w, c, inputs[c.id] || {}, dt);
+    for (const c of cs) if (c.alive) stepCar(w, c, inputs[c.id] || (c.bot ? botInput(w, c, dt) : EMPTY_IN), dt);
     for (const c of cs) if (c.alive && c.y < ELIM_Y) { c.alive = false; c.vx = c.vy = c.vz = 0; } // eliminated: frozen, no collisions/decay
     judgeRound(w);
     itemsStep(w);
@@ -375,11 +474,11 @@
     for (const t of w.list) { t.s = 0; t.t = 0; t.ft = 0; t.fs = 1; t.o = null; t.oh = []; }
     w.active.length = 0; w.queue.length = 0; w.qh = 0; w.redLog.length = w.fallLog.length = w.regenLog.length = 0;
     w.items = []; w.nextSpawn = -1; w.oilList = []; w.oilLog.length = w.oilClr.length = w.oilHit.length = w.events.length = 0;
-    for (const c of w.cars) Object.assign(c, car(c.id, c.sp.x, c.sp.z, c.sp.yaw, c.mass, c.drive, c.decay));
+    for (const c of w.cars) Object.assign(c, car(c.id, c.sp.x, c.sp.z, c.sp.yaw, c.mass, c.drive, c.decay), { bot: c.bot });
     w.round = { phase: 'play', winner: null, t: 0 };
   }
 
   const hash = w => JSON.stringify([w.t, w.cars, w.list.map(t => t.s), w.items]);
-  const api = { C, DEFAULTS, STORE_KEY, loadConfig, saveConfig, resetConfig, setStorage, S, ELIM_Y, car, create, step, resetRound, hash, hexXZ, xzHex, groundY, hexIn };
+  const api = { C, DEFAULTS, botInput, STORE_KEY, loadConfig, saveConfig, resetConfig, setStorage, S, ELIM_Y, car, create, step, resetRound, hash, hexXZ, xzHex, groundY, hexIn };
   if (typeof module !== 'undefined') module.exports = api; else g.Sim = api;
 })(typeof window !== 'undefined' ? window : globalThis);
