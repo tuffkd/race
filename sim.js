@@ -7,6 +7,12 @@
     speedToForceRatio: 0.5,    // extra force per unit of the ATTACKER's speed toward the target
     defenderKnockbackMult: 2.2, // multiplier on that force, applied to the DEFENDER's velocity
     attackerRecoil: 0.20,      // share of the attacker's forward speed lost on impact (0.20 = keeps 80%)
+    // ---- MAP SHRINKING (battle-royale zone) ----
+    mapShrinkEnabled: true,            // outer tile rings collapse inward during a round
+    mapShrinkInitialDelay: 30,         // seconds into the round before the first wave
+    mapShrinkInterval: 5,              // seconds between waves
+    mapShrinkRingsPerStep: 1,          // outer rings that fall per wave
+    mapShrinkMinRemainingRings: 1,     // stop here: 1 = center tile + 1 ring, 0 = center tile only
     // ---- LOBBY / BOTS ----
     maxPlayers: 4, fillBots: false, botAI: true, // host lobby capacity (2-8), fill empty slots with bots at match start, bots drive (false = static test dummies)
     // ---- POWER-UPS ----
@@ -94,11 +100,11 @@
   function create(o = {}) {
     const w = { t: 0, cfg: C, tiles: new Map(), list: [], active: [], queue: [], qh: 0, redLog: [], fallLog: [], regenLog: [],
       ramps: o.ramps || [], plats: (o.plats || []).map(p => Object.assign({ th: 0.7, o: 0, tier: 'mid' }, p)), cars: [], scores: {}, round: { phase: 'play', winner: null, t: 0 },
-      items: [], iid: 1, nextSpawn: -1, rs: o.seed || 12345, oilList: [], oilLog: [], oilClr: [], oilHit: [], events: [] };
+      N: o.radius || 36, rs0: 0, shrinkRing: o.radius || 36, shrinkN: 0, items: [], iid: 1, nextSpawn: -1, rs: o.seed || 12345, oilList: [], oilLog: [], oilClr: [], oilHit: [], events: [] };
     const N = o.radius || 36;
     for (let q = -N; q <= N; q++)
       for (let r = Math.max(-N, -q - N); r <= Math.min(N, -q + N); r++) {
-        const [x, z] = hexXZ(q, r), t = { i: w.list.length, q, r, x, z, s: 0, t: 0, ft: 0, fs: 1, o: null, oh: [], ot: 0 }; // s:0 idle 1 red 2 fallen; o=oil owner, oh=cars that already hit it
+        const [x, z] = hexXZ(q, r), t = { i: w.list.length, q, r, x, z, s: 0, t: 0, ft: 0, fs: 1, o: null, oh: [], ot: 0, ring: Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r)), perm: false }; // s:0 idle 1 red 2 fallen; o=oil owner, oh=cars that already hit it
         w.tiles.set(key(q, r), t); w.list.push(t);
       }
     return w;
@@ -109,7 +115,7 @@
     if (c.y >= -0.5) { // floor + ramps only support cars from above (no snapping up from the abyss)
       const t = w.tiles.get(key(...xzHex(c.x, c.z)));
       if (t && t.s < 2) h = 0;
-      for (const p of w.ramps) {
+      if (h > -Infinity) for (const p of w.ramps) { // a ramp only exists where the floor under it does
         const d = Math.max(Math.abs(c.x - p.x), Math.abs(c.z - p.z));
         if (d < p.hw) h = Math.max(h, p.h * (1 - d / p.hw));
       }
@@ -187,7 +193,7 @@
     if (!t || t.s === 2) return 2;
     if (t.s === 1) return 1.5;
     if (t.o && t.o !== me.id && !t.oh.includes(me.id)) return 0.8;
-    if (Math.max(Math.abs(t.q), Math.abs(t.r), Math.abs(t.q + t.r)) >= 33) return 0.7; // rim of the arena: keep a safety margin
+    if (t.ring >= w.shrinkRing - 3) return 0.7; // rim of the (shrinking) arena: keep a safety margin
     return 0;
   }
   const onRamp = (w, x, z) => w.ramps.some(p => Math.max(Math.abs(x - p.x), Math.abs(z - p.z)) < p.hw + 1);
@@ -418,6 +424,7 @@
     for (const c of cs) if (c.alive) stepCar(w, c, inputs[c.id] || (c.bot ? botInput(w, c, dt) : EMPTY_IN), dt);
     for (const c of cs) if (c.alive && c.y < ELIM_Y) { c.alive = false; c.vx = c.vy = c.vz = 0; } // eliminated: frozen, no collisions/decay
     judgeRound(w);
+    shrinkStep(w);
     itemsStep(w);
     let n = 0;
     for (const t of w.active) {
@@ -425,7 +432,7 @@
     }
     w.active.length = n;
     if (!K.regenOff && K.regen > 0) { // respawn fallen tiles oldest-first after K.regen seconds; regenOff = permanent destruction
-      while (w.qh < w.queue.length && w.t - w.queue[w.qh].ft >= K.regen) { const t = w.queue[w.qh++]; t.s = 0; t.fs = 1; w.regenLog.push(t); }
+      while (w.qh < w.queue.length && w.t - w.queue[w.qh].ft >= K.regen) { const t = w.queue[w.qh++]; if (t.perm || t.ring > w.shrinkRing) continue; t.s = 0; t.fs = 1; w.regenLog.push(t); } // zone-collapsed tiles never return
       if (w.qh > 2048) { w.queue.splice(0, w.qh); w.qh = 0; }
     }
     // ---- asymmetric, velocity-weighted ramming (+ Power Smash / Energy Shield / Ghost) ----
@@ -462,6 +469,29 @@
     }
   }
 
+  // ---------------- MAP SHRINKING ----------------
+  // Waves start mapShrinkInitialDelay s into the round, then every mapShrinkInterval s. Each wave drops the outermost
+  // mapShrinkRingsPerStep rings (hex distance from the center tile) using the normal Hex Collapse warning-red -> fall,
+  // and those tiles are permanent (no respawn). Stops at mapShrinkMinRemainingRings.
+  function shrinkInfo(w) {
+    const K = w.cfg, lim = Math.max(0, Math.round(K.mapShrinkMinRemainingRings));
+    const on = K.mapShrinkEnabled && w.round.phase === 'play' && w.shrinkRing > lim;
+    return { ring: w.shrinkRing, min: lim, next: on ? w.rs0 + K.mapShrinkInitialDelay + w.shrinkN * K.mapShrinkInterval : -1 };
+  }
+  function shrinkStep(w) {
+    const K = w.cfg, zi = shrinkInfo(w);
+    if (zi.next < 0 || w.t < zi.next) return;
+    const outer = w.shrinkRing, inner = Math.max(zi.min, outer - Math.max(1, Math.round(K.mapShrinkRingsPerStep)));
+    for (const t of w.list) {
+      if (t.ring <= inner || t.ring > outer) continue;
+      t.perm = true;
+      if (t.s === 0) { t.s = 1; t.t = K.hexCollapseWarningTime; w.active.push(t); w.redLog.push(t); }
+      else if (t.s === 1 && t.t > K.hexCollapseWarningTime) t.t = K.hexCollapseWarningTime;
+      if (t.s === 1) t.fs = K.hexCollapseFallSpeed;
+    }
+    w.shrinkRing = inner; w.shrinkN++; w.events.push({ k: 'zone', ring: inner });
+  }
+
   // Survival loop: last car alive wins the round (needs 2+ cars); winner's score +1.
   function judgeRound(w) {
     const rnd = w.round;
@@ -471,14 +501,14 @@
   }
   // Host round reset: all tiles restored, cars back on their starting pads, round state cleared; scores persist.
   function resetRound(w) {
-    for (const t of w.list) { t.s = 0; t.t = 0; t.ft = 0; t.fs = 1; t.o = null; t.oh = []; }
+    for (const t of w.list) { t.s = 0; t.t = 0; t.ft = 0; t.fs = 1; t.o = null; t.oh = []; t.perm = false; }
     w.active.length = 0; w.queue.length = 0; w.qh = 0; w.redLog.length = w.fallLog.length = w.regenLog.length = 0;
     w.items = []; w.nextSpawn = -1; w.oilList = []; w.oilLog.length = w.oilClr.length = w.oilHit.length = w.events.length = 0;
     for (const c of w.cars) Object.assign(c, car(c.id, c.sp.x, c.sp.z, c.sp.yaw, c.mass, c.drive, c.decay), { bot: c.bot });
-    w.round = { phase: 'play', winner: null, t: 0 };
+    w.round = { phase: 'play', winner: null, t: 0 }; w.rs0 = w.t; w.shrinkRing = w.N; w.shrinkN = 0; // zone timer restarts with the round
   }
 
-  const hash = w => JSON.stringify([w.t, w.cars, w.list.map(t => t.s), w.items]);
-  const api = { C, DEFAULTS, botInput, STORE_KEY, loadConfig, saveConfig, resetConfig, setStorage, S, ELIM_Y, car, create, step, resetRound, hash, hexXZ, xzHex, groundY, hexIn };
+  const hash = w => JSON.stringify([w.t, w.cars, w.list.map(t => t.s), w.items, w.shrinkRing, w.shrinkN]);
+  const api = { C, DEFAULTS, botInput, shrinkInfo, STORE_KEY, loadConfig, saveConfig, resetConfig, setStorage, S, ELIM_Y, car, create, step, resetRound, hash, hexXZ, xzHex, groundY, hexIn };
   if (typeof module !== 'undefined') module.exports = api; else g.Sim = api;
 })(typeof window !== 'undefined' ? window : globalThis);
