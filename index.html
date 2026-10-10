@@ -125,7 +125,8 @@ const G={
   [C,'mapShrinkInitialDelay','Initial delay',10,60,1,'Seconds into the round before the first collapse wave.'],
   [C,'mapShrinkInterval','Wave interval',2,15,1,'Seconds between collapse waves.'],
   [C,'mapShrinkRingsPerStep','Rings per wave',1,3,1,'How many outer tile rings fall at once each wave.'],
-  [C,'mapShrinkMinRemainingRings','Min remaining rings',0,4,1,'Shrinking stops at this size. 1 = center tile + 1 ring around it, 0 = center tile only.']],
+  [C,'mapShrinkMinRemainingRings','Min remaining rings',0,4,1,'Shrinking stops at this size. 1 = center tile + 1 ring around it, 0 = center tile only.'],
+  [C,'rampsFallWithFloor','Ramps fall with floor','toggle','Off (default): ramps stay solid as floating islands when the floor under them is gone. On: a ramp drops together with its floor tile.']],
  LOBBY:[[C,'maxPlayers','Max players',2,8,1,'How many players the room accepts (2-8). Also sets the car count of an offline practice match.'],
   [C,'fillBots','Fill with bots','toggle','When a match starts, empty slots up to Max players are filled with AI bots.'],
   [C,'botAI','Bot AI','toggle','On: bots drive, grab coins, dodge holes, ram and use items. Off: bots stand still (bump-test dummies).']],
@@ -134,7 +135,6 @@ const G={
   [C,'pickupSpawnMinDelay','Spawn delay min',0,10,.5,'Shortest wait (s) before a new item appears after a pickup.'],
   [C,'pickupSpawnMaxDelay','Spawn delay max',1,20,.5,'Longest wait (s) before a new item appears.'],
   [C,'invDup','Duplicate actives','toggle','Allow holding the same active item more than once.'],
-  [C,'allowDuplicatePassives','Stack passives','toggle','Allow picking up Power Smash or Energy Shield while already active (adds time / hits). Off = pickup stays on the board.'],
   [C,'powerSmashDuration','Power Smash time',3,40,1,'Seconds Power Smash lasts (+50% mass).'],
   [C,'smashBump','Smash force',1,3,.1,'Bump force multiplier while Power Smash is active.'],
   [C,'shieldHits','Shield hits',1,6,1,'Normal bumps an Energy Shield absorbs before it breaks.'],
@@ -147,8 +147,28 @@ const G={
   [C,'hexCollapseFallSpeed','Collapse fall speed',.5,6,.1,'How fast collapsed tiles drop into the void (1 = normal tile drop).'],
   [C,'oilTime','Oil Slick duration',1,10,.5,'Seconds the car dispenses oil.'],
   [C,'oilLife','Oil lifetime',5,60,1,'Seconds oil stays on the floor.'],
-  [C,'oilClearAll','Oil clears for all','toggle','When a car hits oil, remove it for everyone, not just that car.'],
-  [C,'ghostPhaseDuration','Ghost Phase time',1,8,.5,'Seconds of intangibility.']],
+  [C,'oilClearAll','Oil clears for all','toggle','When a car hits oil, remove it for everyone, not just that car.']],
+ STACK:[[C,'allowDuplicatePassives','Stack passives','toggle','Power Smash adds time and Energy Shield adds hits when picked up while already active. Off = the pickup stays on the board.'],
+  [C,'ghostPhaseDuration','Ghost Phase time',1,12,.5,'Seconds of intangibility. While active you also hover over tiles that already fell.'],
+  [C,'ghostPhaseStack','Stack Ghost Phase','toggle','Using a second Ghost Phase while one is active ADDS its time (4s + 4s = 8s). Off = it only refreshes.'],
+  [C,'ghostPhaseCooldown','Ghost cooldown',0,15,.5,'Seconds before Ghost Phase can be used again after it ends. 0 = no cooldown.'],
+  [C,'oilSlickSlipDuration','Oil slip time',.2,4,.1,'Seconds a victim loses control after hitting a slick (OilSlick_SlipDuration).'],
+  [C,'oilSlipStack','Stack oil slip','toggle','Hitting several different slicks ADDS their slip times. Off = the longest one wins.']],
+ QUANTUM:[[C,'quantumDuration','Shift duration',2,20,.5,'Seconds the BIG / SMALL form lasts.'],
+  [C,'bigScale','BIG size',1.2,3,.1,'Scale of the Juggernaut form (visual + hitbox).'],
+  [C,'bigMassMul','BIG weight',1,6,.1,'Mass multiplier. Heavy cars barely move when hit.'],
+  [C,'bigOutForce','BIG smash force',1,4,.1,'Outgoing knockback multiplier.'],
+  [C,'bigInForce','BIG knockback taken',0,1,.05,'Incoming knockback multiplier (low = nearly immovable).'],
+  [C,'bigSpeedMul','BIG top speed',.4,1,.05,'0.8 = 20% slower.'],
+  [C,'bigTurnMul','BIG turn rate',.3,1,.05,'Lower = wider turning circle.'],
+  [C,'bigTileFall','BIG tile drop speed',1,3,.1,'1.5 = tiles it touches fall 50% sooner.'],
+  [C,'smallScale','SMALL size',.3,1,.05,'Scale of the Speedster form.'],
+  [C,'smallMassMul','SMALL weight',.1,1,.05,'Featherweight mass multiplier.'],
+  [C,'smallOutForce','SMALL ram force',0,1,.05,'Outgoing knockback multiplier (near zero).'],
+  [C,'smallInForce','SMALL knockback taken',1,5,.1,'Incoming knockback multiplier. Higher = flies farther.'],
+  [C,'smallSpeedMul','SMALL top speed',1,3,.1,'2.0 = double speed.'],
+  [C,'smallAccelMul','SMALL acceleration',1,4,.1,'How much faster it reaches top speed.'],
+  [C,'smallTurnMul','SMALL turn rate',.5,2,.05,'Steering multiplier (raise it if 2x speed feels slippery).']],
  VIEW:[[view,'hud','Show HUD','toggle','Show or hide the speed / state readout.'],[view,'cam','Camera distance',5,16,.5,'How far the chase camera sits behind the car.']]};
 const tip=$('tip');let saveT=0;const persist=o=>{if(!canEdit())return;if(o===C){clearTimeout(saveT);saveT=setTimeout(()=>Sim.saveConfig(),150);cfgSoon();if(net.role==='host')updateLobby()}}; // host tweaks survive reloads (localStorage)
 function hover(el,txt){el.onmouseenter=()=>{const r=el.getBoundingClientRect(),m=$('m').getBoundingClientRect();tip.textContent=txt;
@@ -167,7 +187,7 @@ function draw(){
       r.querySelector('.tg').onclick=e=>{o[k]=!o[k];persist(o);e.target.classList.toggle('on',o[k]);if(k==='hud')$('h').style.display=o[k]?'block':'none';if(k==='regenOff')draw()};B.appendChild(r);continue}
     r.innerHTML=`<div class=top><span class=nm>${n}</span><div class=val><button>−</button><span>${fmt(o[k],s)}</span><button>+</button></div></div><input type=range min=${a} max=${b} step=${s} value=${o[k]}>`;
     const i=r.querySelector('input'),v=r.querySelector('span:not(.nm)'),[m,p]=r.querySelectorAll('button');
-    const set=(x,sv)=>{x=Math.min(b,Math.max(a,+x));o[k]=Math.round(x/s)*s;o[k]=+o[k].toFixed(3);if(sv)persist(o);i.value=o[k];v.textContent=fmt(o[k],s)+({regen:'s',mapShrinkInitialDelay:'s',mapShrinkInterval:'s'}[k]||'');i.style.setProperty('--p',(o[k]-a)/(b-a)*100+'%')};
+    const set=(x,sv)=>{x=Math.min(b,Math.max(a,+x));o[k]=Math.round(x/s)*s;o[k]=+o[k].toFixed(3);if(sv)persist(o);i.value=o[k];v.textContent=fmt(o[k],s)+({regen:'s',mapShrinkInitialDelay:'s',mapShrinkInterval:'s',ghostPhaseDuration:'s',ghostPhaseCooldown:'s',oilSlickSlipDuration:'s',quantumDuration:'s',powerSmashDuration:'s'}[k]||'');i.style.setProperty('--p',(o[k]-a)/(b-a)*100+'%')};
     set(o[k]);i.oninput=()=>set(i.value,1);i.onchange=()=>i.blur();m.onclick=()=>set(o[k]-s,1);p.onclick=()=>set(o[k]+s,1);B.appendChild(r)}}
 const canEdit=()=>mode==='offline'||net.role==='host'; // game rules / balance: host (or offline) only
 const applyPanel=()=>{const ce=canEdit(),sig=ce?'H':'C';
@@ -201,8 +221,8 @@ im.frustumCulled=false;sc.add(im);
 const D=new THREE.Object3D(),col=new THREE.Color(),SH=[0x2b3550,0x313d5c,0x272f48],RED=0xd9473d;
 let anim=[],rise=[];
 const setM=(t,y,s=1)=>{D.position.set(t.x,y,t.z);D.scale.setScalar(s);D.updateMatrix();im.setMatrixAt(t.i,D.matrix)};
-const shade=t=>SH[((t.q-t.r)%3+3)%3],OIL=0x4a1f7a; // oil is drawn dark purple, hidden from a car once it has hit it
-function paint(t){im.setColorAt(t.i,col.setHex(t.s===1?RED:t.o&&!t.oh.includes(net.myId)?OIL:shade(t)))}
+const shade=t=>SH[((t.q-t.r)%3+3)%3],OIL=0x4a1f7a,OILOWN=0xe8c21a; // oil: dark purple for others' slicks (hidden once YOU hit it); YOUR OWN slick is yellow on YOUR screen only
+function paint(t){im.setColorAt(t.i,col.setHex(t.s===1?RED:t.o===net.myId?OILOWN:t.o&&!t.oh.includes(net.myId)?OIL:shade(t)))}
 function initTiles(){anim=[];rise=[];for(const t of w.list){t._h=false;setM(t,-.25);im.setColorAt(t.i,col.setHex(shade(t)))}
   im.instanceMatrix.needsUpdate=im.instanceColor.needsUpdate=true}
 initTiles();let bnUntil=0,seenOver=false;
@@ -210,8 +230,8 @@ const reset=()=>{Sim.resetRound(w);for(const c of w.cars){c.px=c.x;c.py=c.y;c.pz
   if(net.role==='host'){bcast({k:'reset'});net.d.ts.clear();net.d.os.clear();net.sendT=1}};
 const doReset=()=>{if(mode==='offline'||(mode==='host'&&net.role==='host'&&net.live))reset()}; // only the host (or offline) can start a new round
 $('nr').onclick=doReset;$('nr').onfocus=e=>e.target.blur();
-for(const r of RAMPS){const m=new THREE.Mesh(new THREE.ConeGeometry(r.hw*Math.SQRT2,r.h,4),mat(0xe39b2d));
-  m.rotation.y=Math.PI/4;m.position.set(r.x,r.h/2,r.z);sc.add(m)}
+const rampMeshes=[];for(const r of RAMPS){const m=new THREE.Mesh(new THREE.ConeGeometry(r.hw*Math.SQRT2,r.h,4),mat(0xe39b2d));
+  m.rotation.y=Math.PI/4;m.position.set(r.x,r.h/2,r.z);sc.add(m);rampMeshes.push(m)}
 for(const p of w.plats){const m=new THREE.Mesh(new THREE.CylinderGeometry(p.r,p.r,p.th,6),mat(p.top>15?0xd4a24a:0x5a8f99));
   m.position.set(p.x,p.top-p.th/2,p.z);m.rotation.y=p.o?Math.PI/2:0;sc.add(m)} // floating: nothing underneath
 // cars + deployable wings
@@ -223,17 +243,17 @@ const mkCarMesh=c=>{const g=new THREE.Group(),i=new THREE.Group();
   k.position.set(0,.5,-.2);i.add(b,k);
   const wm=mat(0xeef1f7),wings=[1,-1].map(sd=>{const p=new THREE.Group();p.position.set(sd*.85,.35,.1);p.add(new THREE.Mesh(wg,wm));p.scale.x=.001;i.add(p);return p});
   const gh=aura(2.3,0xcfe8ff,.3),sd=aura(2.5,0x4cc4ff,.25),sm=new THREE.Mesh(new THREE.BoxGeometry(2.1,.45,.5),mat(0xff7a1a));sm.position.set(0,.05,1.75);sm.visible=false;
-  g.add(i,gh,sd,sm);g.userData={i,wings,wk:0,gh,sd,sm,mats:[bm,km,wm],gs:false};return g};
+  g.add(i,gh,sd,sm);g.userData={i,wings,wk:0,sc:1,gh,sd,sm,mats:[bm,km,wm],gs:false};return g};
 const meshes={},tags={};
 function carMesh(c){let g=meshes[c.id];if(!g){g=mkCarMesh(COLORS[(c.ci||0)%4]);meshes[c.id]=g;sc.add(g)}return g}
 function clearCars(){for(const id in meshes){sc.remove(meshes[id]);delete meshes[id]}for(const id in tags){tags[id].remove&&tags[id].remove();delete tags[id]}$('tags').innerHTML=''}
 // power-up visuals
 // Item coins. One definition drives the 3D pickup AND the HUD icon, so colors and labels always match.
-const CC={boost:0x2ee6f0,smash:0xff5a1f,shield:0x9b5cf6,shock:0xffe135,collapse:0x8b1a1a,oil:0x26262b,ghost:0xd8f8f5}; // coin colors
+const CC={boost:0x2ee6f0,smash:0xff5a1f,shield:0x9b5cf6,shock:0xffe135,collapse:0x8b1a1a,oil:0x26262b,ghost:0xd8f8f5,quantum:0xd946ef}; // coin colors
 const lite=(c,a)=>{const r=c>>16&255,g=c>>8&255,b=c&255,m=x=>Math.round(x+(255-x)*a);return m(r)<<16|m(g)<<8|m(b)};
 const EC={};for(const k in CC)EC[k]=k==='ghost'?0x58c9d1:lite(CC[k],k==='oil'?.55:.5); // raised emblem colors
 const hx=c=>'#'+c.toString(16).padStart(6,'0');
-const ITM={boost:'SPEED BOOST',smash:'POWER SMASH',shield:'ENERGY SHIELD',shock:'SHOCKWAVE',collapse:'HEX COLLAPSE',oil:'OIL SLICK',ghost:'GHOST PHASE'};
+const ITM={boost:'SPEED BOOST',smash:'POWER SMASH',shield:'ENERGY SHIELD',shock:'SHOCKWAVE',collapse:'HEX COLLAPSE',oil:'OIL SLICK',ghost:'GHOST PHASE',quantum:'QUANTUM SHIFT'};
 const arc=(cx,cy,r,a0,a1,n)=>Array.from({length:n+1},(_,i)=>{const a=(a0+(a1-a0)*i/n)*Math.PI/180;return[cx+Math.cos(a)*r,cy+Math.sin(a)*r]});
 const EMB={ // emblem primitives in coin units: p = closed outline polygon, r = ring, d = dot [x,y,radius]
  boost:[{p:[[.15,.6],[-.3,-.05],[-.02,-.05],[-.15,-.6],[.3,.08],[.03,.08]]}],                                   // lightning bolt
@@ -244,6 +264,7 @@ const EMB={ // emblem primitives in coin units: p = closed outline polygon, r = 
  oil:[{p:[[0,.62],...arc(0,-.15,.38,20,-200,8)]}],                                                              // droplet
  ghost:[{p:[...arc(0,.12,.38,0,180,6),[-.38,-.5],[-.19,-.32],[0,-.5],[.19,-.32],[.38,-.5]]},{d:[-.14,.14,.06]},{d:[.14,.14,.06]}] // ghost
 };
+EMB.quantum=[{p:[[-.5,.5],[.5,.5],[.5,-.5],[-.5,-.5]]},{p:[[-.2,.2],[.2,.2],[.2,-.2],[-.2,-.2]]}]; // size shift: big square around a small one
 EMB.collapse=[{p:Array.from({length:6},(_,i)=>{const a=(30+60*i)*Math.PI/180;return[Math.cos(a)*.55,Math.sin(a)*.55]})}];
 const svgIcon=ty=>`<svg viewBox="-1 -1 2 2">${EMB[ty].map(e=>e.p?`<polygon points="${e.p.map(q=>q[0].toFixed(2)+','+(-q[1]).toFixed(2)).join(' ')}"/>`:e.r?`<circle r="${e.r}"/>`:`<circle cx="${e.d[0]}" cy="${-e.d[1]}" r="${e.d[2]}" style="fill:var(--e);stroke:none"/>`).join('')}</svg>`;
 const coinIcon=(ty,s)=>`<span class=ci style="--c:${hx(CC[ty])};--e:${hx(EC[ty])};width:${s}px;height:${s}px">${svgIcon(ty)}</span>`;
@@ -287,21 +308,21 @@ function netCollect(){const T=net.d; // remember which tiles / oil tiles / event
 const r2=v=>Math.round(v*100)/100;
 function snapshot(){const T=net.d,L=w.list;
   const m={k:'s',t:+w.t.toFixed(3),
-    c:w.cars.map(c=>({i:c.id,x:r2(c.x),y:r2(c.y),z:r2(c.z),a:r2(c.yaw),r:r2(c.roll),vx:r2(c.vx),vz:r2(c.vz),st:c.st,al:c.alive?1:0,inv:c.inv,sm:r2(c.smashT),sh:c.shield,bo:r2(c.boostT),gh:r2(c.ghostT),oi:r2(c.oilT),sl:r2(c.slick),e:c.ev,g:c.gs})),
+    c:w.cars.map(c=>({i:c.id,x:r2(c.x),y:r2(c.y),z:r2(c.z),a:r2(c.yaw),r:r2(c.roll),vx:r2(c.vx),vz:r2(c.vz),st:c.st,al:c.alive?1:0,inv:c.inv,sm:r2(c.smashT),sh:c.shield,bo:r2(c.boostT),gh:r2(c.ghostT),oi:r2(c.oilT),sl:r2(c.slick),e:c.ev,g:c.gs,qk:c.qk,qT:r2(c.qT),sz:r2(c.sz)})),
     it:w.items.map(i=>({id:i.id,type:i.type,x:r2(i.x),y:r2(i.y),z:r2(i.z)})),rd:{ph:w.round.phase,wi:w.round.winner},sc:w.scores,
-    ts:[...T.ts].map(i=>{const t=L[i];return[i,t.s,+t.ft.toFixed(3),t.fs]}),os:[...T.os].map(i=>{const t=L[i];return[i,t.o,t.oh]}),ev:T.ev,zn:Sim.shrinkInfo(w)};
+    ts:[...T.ts].map(i=>{const t=L[i];return[i,t.s,+t.ft.toFixed(3),t.fs]}),os:[...T.os].map(i=>{const t=L[i];return[i,t.o,t.oh]}),ev:T.ev,zn:Sim.shrinkInfo(w),rg:w.ramps.map(r=>[r.gone?1:0,+r.ft.toFixed(3)])};
   T.ts.clear();T.os.clear();T.ev=[];return m}
 // ---- CLIENT: dumb terminal. No physics: apply host packets, interpolate, send inputs ----
 function applySnap(m){const now=performance.now(),L=w.list,pose={};
   for(const o of m.c){const c=w.cars.find(c=>c.id===o.i);if(!c)continue;
-    c.st=o.st;c.alive=!!o.al;c.inv=o.inv;c.smashT=o.sm;c.shield=o.sh;c.boostT=o.bo;c.ghostT=o.gh;c.oilT=o.oi;c.slick=o.sl;c.vx=o.vx;c.vz=o.vz;c.ev=o.e;c.gs=o.g;
+    c.st=o.st;c.alive=!!o.al;c.inv=o.inv;c.smashT=o.sm;c.shield=o.sh;c.boostT=o.bo;c.ghostT=o.gh;c.oilT=o.oi;c.slick=o.sl;c.vx=o.vx;c.vz=o.vz;c.ev=o.e;c.gs=o.g;c.qk=o.qk;c.qT=o.qT;c.sz=o.sz;
     pose[o.i]=[o.x,o.y,o.z,o.a,o.r]}
   net.snaps.push({rt:now,t:m.t,c:pose});if(net.snaps.length>40)net.snaps.shift();
   for(const [i,s,ft,fs] of m.ts){const t=L[i];if(!t)continue;const p=t.s;t.s=s;t.ft=ft;t.fs=fs;
     if(s===1&&p!==1)w.redLog.push(t);else if(s===2&&p!==2)w.fallLog.push(t);else if(s===0&&p!==0)w.regenLog.push(t)}
   for(const [i,o,oh] of m.os){const t=L[i];if(!t)continue;const had=!!t.o;t.o=o;t.oh=oh||[];
     if(o){if(!had)w.oilList.push(t);w.oilLog.push(t)}else if(had){w.oilList=w.oilList.filter(x=>x!==t);w.oilClr.push(t)}}
-  w.items=m.it.map(i=>({...i,ti:-1}));w.round.phase=m.rd.ph;w.round.winner=m.rd.wi;w.scores=m.sc;w.zn=m.zn;for(const e of m.ev)w.events.push(e)}
+  w.items=m.it.map(i=>({...i,ti:-1}));w.round.phase=m.rd.ph;w.round.winner=m.rd.wi;w.scores=m.sc;w.zn=m.zn;(m.rg||[]).forEach((g,i)=>{if(w.ramps[i]){w.ramps[i].gone=!!g[0];w.ramps[i].ft=g[1]}});for(const e of m.ev)w.events.push(e)}
 function clientTick(now){const S=net.snaps;if(!S.length)return;const lt=S[S.length-1];w.t=lt.t+(now-lt.rt)/1000; // host clock, extrapolated
   const rt=now-100;let a=S[0],b=S[0],f=0; // render 100 ms in the past, interpolating between host snapshots
   for(let i=S.length-1;i>=0;i--){if(S[i].rt<=rt){a=S[i];b=S[i+1]||S[i];f=b===a?0:(rt-a.rt)/(b.rt-a.rt);break}a=b=S[i]}
@@ -411,14 +432,15 @@ function frame(now){const fd=Math.min((now-last)/1000,.1);last=now;fps+=(1/fd-fp
   for(let k=rise.length-1;k>=0;k--){const q=rise[k],p=(w.t-q.t0)/.35; // respawned tile pops back up into place
     if(q.t.s===2||p>=1){if(q.t.s!==2)setM(q.t,-.25);rise.splice(k,1)}else setM(q.t,-.25-3*(1-p)*(1-p));ch=true}
   if(ch){im.instanceMatrix.needsUpdate=true;if(im.instanceColor)im.instanceColor.needsUpdate=true}
-  w.cars.forEach(c=>{const g=carMesh(c),u=g.userData;g.visible=c.alive;g.position.set(L(c.px??c.x,c.x),L(c.py??c.y,c.y)+.4,L(c.pz??c.z,c.z));
+  w.ramps.forEach((rp,i)=>{const m=rampMeshes[i];if(!m)return;if(rp.gone){const d=Math.max(0,w.t-rp.ft),y=rp.h/2-20*d*d;m.position.y=y;m.visible=y>-120}else{m.position.y=rp.h/2;m.visible=true}}); // ramps drop with their floor (if enabled)
+  w.cars.forEach(c=>{const g=carMesh(c),u=g.userData;u.sc+=((c.sz||1)-u.sc)*(1-Math.exp(-14*fd));g.scale.setScalar(u.sc);g.visible=c.alive;g.position.set(L(c.px??c.x,c.x),L(c.py??c.y,c.y)+.4*u.sc,L(c.pz??c.z,c.z));
     g.rotation.y=L(c.pyaw??c.yaw,c.yaw);u.i.rotation.z=-c.roll;
     u.wk+=((c.st==='F'?1:0)-u.wk)*(1-Math.exp(-16*fd));const f=c.st==='F'?Math.sin(now*.012)*.08:0;
     u.wings.forEach((p,j)=>{const s=j?-1:1;p.scale.x=s*Math.max(.001,u.wk);p.rotation.z=s*(f+.1*u.wk)});
     const gt=c.ghostT>0;if(gt!==u.gs){u.gs=gt;u.mats.forEach(m=>{m.transparent=gt;m.opacity=gt?.35:1;m.depthWrite=!gt;m.needsUpdate=true})}
     u.gh.visible=gt;u.sd.visible=c.shield>0;if(c.shield>0)u.sd.material.opacity=.12+.07*c.shield;u.sm.visible=c.smashT>0});
   // camera: always the LOCAL player's car (host or client); spectates a survivor once eliminated
-  const p=me(),al=w.cars.map((c,i)=>i).filter(i=>w.cars[i].alive),cd=view.cam;
+  const p=me(),al=w.cars.map((c,i)=>i).filter(i=>w.cars[i].alive),cd=view.cam*Math.max(1,p.sz||1); // camera backs off when you are BIG
   const ti=overlayOn()?-1:p.alive?w.cars.indexOf(p):al.length?al[((spec.i%al.length)+al.length)%al.length]:-1;
   if(ti<0){const a2=now*.0003;cam.position.lerp(new THREE.Vector3(Math.cos(a2)*55,38,Math.sin(a2)*55),1-Math.exp(-3*fd));cam.lookAt(0,0,0)}
   else{const g=carMesh(w.cars[ti]),yw=g.rotation.y,fx=Math.sin(yw),fz=Math.cos(yw),q=g.position,k=p.alive?1:1.7;
@@ -430,7 +452,7 @@ function frame(now){const fd=Math.min((now-last)/1000,.1);last=now;fps+=(1/fd-fp
     if(!tg){tg=document.createElement('div');tg.className='tag';tg.style.setProperty('--c',hx(COLORS[(c.ci||0)%4]));$('tags').appendChild(tg);tags[c.id]=tg}
     if(tg._n!==c.name){tg._n=c.name;tg.textContent=c.name}
     let vis=!overlayOn()&&c.alive&&c.id!==p.id;
-    if(vis){const g=carMesh(c);tv.set(g.position.x,g.position.y+2.4,g.position.z).project(cam);vis=tv.z<1&&tv.z>-1&&Math.abs(tv.x)<1.2&&Math.abs(tv.y)<1.2;
+    if(vis){const g=carMesh(c);tv.set(g.position.x,g.position.y+2.4*Math.max(1,g.userData.sc||1),g.position.z).project(cam);vis=tv.z<1&&tv.z>-1&&Math.abs(tv.x)<1.2&&Math.abs(tv.y)<1.2;
       if(vis)tg.style.transform=`translate(${(tv.x*W2+W2).toFixed(0)}px,${(H2-tv.y*H2).toFixed(0)}px) translate(-50%,-100%)`}
     tg.style.display=vis?'block':'none'}
   // ---- power-ups: floating coins, effect events, inventory HUD ----
@@ -440,15 +462,15 @@ function frame(now){const fd=Math.min((now-last)/1000,.1);last=now;fps+=(1/fd-fp
   for(const id in itemMesh)if(!live[id]){sc.remove(itemMesh[id]);delete itemMesh[id]}
   for(const e of w.events){const c=w.cars.find(c=>c.id===e.id);
     if(e.k==='shock')ring(e.x,e.z,e.r,0x7fd8ff,.5,e.y);else if(e.k==='collapse')ring(e.x,e.z,e.rad||5,0x8b1a1a,.5,0);
-    else if(e.k==='shatter'&&c)ring(c.x,c.z,9,0xffb62e,.4,c.y);else if(e.k==='shield'&&c)ring(c.x,c.z,4,0x4cc4ff,.25,c.y);else if(e.k==='zone')zoneFlash=now+1800}
+    else if(e.k==='shatter'&&c)ring(c.x,c.z,9,0xffb62e,.4,c.y);else if(e.k==='shield'&&c)ring(c.x,c.z,4,0x4cc4ff,.25,c.y);else if(e.k==='zone')zoneFlash=now+1800;else if(e.k==='quantum'&&c)ring(c.x,c.z,e.kind==='big'?10:5,e.kind==='big'?0xe5534b:0x2ee6f0,.5,c.y)}
   w.events.length=0;
   for(let k=rings.length-1;k>=0;k--){const r=rings[k],a2=(now-r.t0)/(r.d*1000);if(a2>=1){sc.remove(r.m);rings.splice(k,1)}else{r.m.scale.setScalar(Math.max(.01,a2*r.R));r.m.material.opacity=.6*(1-a2)}}
-  const pk=p,hk=JSON.stringify([pk.inv,Math.ceil(pk.smashT),pk.shield,pk.boostT>0,Math.ceil(pk.ghostT),Math.ceil(pk.oilT),pk.alive]);
+  const pk=p,hk=JSON.stringify([pk.inv,Math.ceil(pk.smashT),pk.shield,pk.boostT>0,Math.ceil(pk.ghostT),Math.ceil(pk.oilT),pk.alive,pk.qk,Math.ceil(pk.qT||0)]);
   if(hk!==hudKey){hudKey=hk;let h='<div class=slots>';for(let k=0;k<3;k++){const ty=pk.inv[k];
     h+=ty?`<div class="slot${k?'':' cur'}" style="--c:${hx(CC[ty])}">${coinIcon(ty,40)}<small>${ITM[ty]}</small>${k?'':'<em>'+kb.power[0].replace('Key','').toUpperCase()+'</em>'}</div>`:'<div class="slot empty"></div>'}
     h+='</div><div class=chips>';if(pk.smashT>0)h+=`<span>${coinIcon('smash',22)}${Math.ceil(pk.smashT)}s</span>`;if(pk.shield>0)h+=`<span>${coinIcon('shield',22)}×${pk.shield}</span>`;
     if(pk.boostT>0)h+=`<span>${coinIcon('boost',22)}BOOST</span>`;if(pk.ghostT>0)h+=`<span>${coinIcon('ghost',22)}${Math.ceil(pk.ghostT)}s</span>`;if(pk.oilT>0)h+=`<span>${coinIcon('oil',22)}${Math.ceil(pk.oilT)}s</span>`;
-    $('inv').innerHTML=h+'</div>'}
+    if(pk.qk)h+=`<span>${coinIcon('quantum',22)}${pk.qk==='big'?'BIG':'SMALL'} ${Math.ceil(pk.qT)}s</span>`;$('inv').innerHTML=h+'</div>'}
   const fv=72+(pk.boostT>0?12:0);if(Math.abs(cam.fov-fv)>.05){cam.fov+=(fv-cam.fov)*(1-Math.exp(-8*fd));cam.updateProjectionMatrix()}
   const rd=w.round;if(rd.phase==='over'&&!seenOver){seenOver=true;bnUntil=now+3500}if(rd.phase==='play')seenOver=false;
   const bn=$('bn');if(now<bnUntil){bn.style.display='block';bn.innerHTML=rd.winner?`ROUND WINNER<small>${esc(nameOf(rd.winner))} · +1 point</small>`:'DRAW<small>no survivors</small>'}else bn.style.display='none';
