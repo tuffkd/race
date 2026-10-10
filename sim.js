@@ -17,13 +17,19 @@
     maxPlayers: 4, fillBots: false, botAI: true, // host lobby capacity (2-8), fill empty slots with bots at match start, bots drive (false = static test dummies)
     // ---- POWER-UPS ----
     puOn: true, puMax: 3, pickupSpawnMinDelay: 4.5, pickupSpawnMaxDelay: 8.0, invMax: 3, invDup: true, allowDuplicatePassives: false, // board cap, spawn delay range (s), inventory size
-    smashMass: 1.5, smashBump: 1.5, powerSmashDuration: 10,      // Power Smash: mass x, bump force x, duration (s)
+    smashMass: 1.5, smashBump: 2.2, powerSmashDuration: 10,      // Power Smash: mass x, bump force x, duration (s)
     shieldHits: 3, shieldBounce: 14, shatterReflect: 1.3, // Energy Shield: hits absorbed, attacker bounce speed, shatter blast vs Smash
     boostMul: 1.7, boostTime: 1.5, boostKick: 10,       // Speed Boost: speed x, duration, instant kick
     shockwaveForce: 150, shockwaveRadius: 50,                     // Kinetic Shockwave
-    hexCollapseRadius: 1, hexCollapseWarningTime: 0.25, hexCollapseFallSpeed: 1, // Hex Collapse: rings around target (0 = target only, 1 = +6), warning-red seconds, fall-speed multiplier (visual)
-    oilTime: 3, oilLife: 20, oilGrip: 0.5, oilSteer: 0.25, slickT: 0.35, oilClearAll: false, // Oil Slick
-    ghostPhaseDuration: 4.0,
+    hexCollapseRadius: 5, hexCollapseWarningTime: 0.05, hexCollapseFallSpeed: 6, // Hex Collapse: rings around target (0 = target only, 1 = +6), warning-red seconds, fall-speed multiplier (visual)
+    oilTime: 3, oilLife: 20, oilGrip: 0.5, oilSteer: 0.25, oilClearAll: false, // Oil Slick (dispense time, tile lifetime, victim grip + steering while slipping)
+    oilSlickSlipDuration: 1.2, oilSlipStack: true,   // OilSlick_SlipDuration: seconds victims lose control per slick; stacks additively across different slicks
+    ghostPhaseDuration: 4.0, ghostPhaseStack: true, ghostPhaseCooldown: 0, // Ghost Phase: duration, a 2nd activation ADDS time (4+4=8), optional cooldown after it ends
+    rampsFallWithFloor: false,         // false (default): ramps stay solid as floating islands when the floor under them is gone; true: they fall with their floor tile
+    // ---- QUANTUM SHIFT (Space: 50/50 BIG or SMALL) ----
+    quantumDuration: 8,
+    bigScale: 2, bigMassMul: 3, bigOutForce: 1.5, bigInForce: 0.25, bigSpeedMul: 0.8, bigTurnMul: 0.65, bigTileFall: 1.5, // Juggernaut
+    smallScale: 0.5, smallMassMul: 0.35, smallOutForce: 0.1, smallInForce: 2, smallSpeedMul: 2, smallAccelMul: 2, smallTurnMul: 1, // Speedster
     // ---- movement ----
     speed: 23, flightMul: 1.6, steer: 2.9, grip: 7, air: 2, gravity: 42, jumpV: 21, rampJump: 0.2,
     flightLift: 24, flightDamp: 2, flightSink: 9, rollTime: 0.6, fallDelay: 0.7, regen: 5, regenOff: false, coyote: 7, buffer: 10, flightLock: 8,
@@ -95,11 +101,11 @@
   // gs=frames since last grounded, hopped=ground jump used this flight, buf=frames left on buffered press, ev=last jump decision
   // decay=false (dummy bots) -> this car never triggers tile decay
   const car = (id, x, z, yaw, mass, drive = true, decay = true) => ({ id, x, y: 0, z, vx: 0, vy: 0, vz: 0, yaw, mass, drive, decay,
-    st: 'G', gs: 0, ev: '', evT: 0, buf: 0, bcd: 0, bot: false, ai: null, alive: true, sp: { x, z, yaw }, inv: [], smashT: 0, shield: 0, boostT: 0, ghostT: 0, oilT: 0, slick: 0, roll: 0, rollT: -1, rollDir: 0, rise: 0 });
+    st: 'G', gs: 0, ev: '', evT: 0, buf: 0, bcd: 0, bot: false, ai: null, alive: true, sp: { x, z, yaw }, inv: [], smashT: 0, shield: 0, boostT: 0, ghostT: 0, oilT: 0, slick: 0, slickDeps: [], oilDep: 0, ghostCd: 0, qk: null, qT: 0, sz: 1, roll: 0, rollT: -1, rollDir: 0, rise: 0 });
 
   function create(o = {}) {
     const w = { t: 0, cfg: C, tiles: new Map(), list: [], active: [], queue: [], qh: 0, redLog: [], fallLog: [], regenLog: [],
-      ramps: o.ramps || [], plats: (o.plats || []).map(p => Object.assign({ th: 0.7, o: 0, tier: 'mid' }, p)), cars: [], scores: {}, round: { phase: 'play', winner: null, t: 0 },
+      ramps: (o.ramps || []).map(p => Object.assign({}, p, { gone: false, ft: 0 })), depId: 0, plats: (o.plats || []).map(p => Object.assign({ th: 0.7, o: 0, tier: 'mid' }, p)), cars: [], scores: {}, round: { phase: 'play', winner: null, t: 0 },
       N: o.radius || 36, rs0: 0, shrinkRing: o.radius || 36, shrinkN: 0, items: [], iid: 1, nextSpawn: -1, rs: o.seed || 12345, oilList: [], oilLog: [], oilClr: [], oilHit: [], events: [] };
     const N = o.radius || 36;
     for (let q = -N; q <= N; q++)
@@ -114,8 +120,9 @@
     let h = -Infinity;
     if (c.y >= -0.5) { // floor + ramps only support cars from above (no snapping up from the abyss)
       const t = w.tiles.get(key(...xzHex(c.x, c.z)));
-      if (t && t.s < 2) h = 0;
-      if (h > -Infinity) for (const p of w.ramps) { // a ramp only exists where the floor under it does
+      if (t && (t.s < 2 || c.ghostT > 0)) h = 0; // Ghost Phase hovers over tiles that already fell
+      for (const p of w.ramps) { // ramps are floating islands (stay solid without floor) unless rampsFallWithFloor dropped them
+        if (p.gone) continue;
         const d = Math.max(Math.abs(c.x - p.x), Math.abs(c.z - p.z));
         if (d < p.hw) h = Math.max(h, p.h * (1 - d / p.hw));
       }
@@ -130,23 +137,26 @@
 
   // ---------------- POWER-UPS ----------------
   // Passives (apply on pickup, no slot): smash, shield.  Actives (inventory, Space): boost, shock, collapse, oil, ghost.
-  const TYPES = ['smash', 'shield', 'boost', 'shock', 'collapse', 'oil', 'ghost'];
-  const TM = ['boostT', 'ghostT', 'oilT', 'smashT', 'slick'];
+  const TYPES = ['smash', 'shield', 'boost', 'shock', 'collapse', 'oil', 'ghost', 'quantum'];
+  const TM = ['boostT', 'ghostT', 'oilT', 'smashT', 'slick', 'ghostCd', 'qT'];
   // all tiles within k hex rings of axial (q,r): k=0 -> just that tile, k=1 -> 7 tiles, k=2 -> 19 ...
   function ringTiles(w, q, r, k) {
     const out = [];
     for (let dq = -k; dq <= k; dq++) for (let dr = Math.max(-k, -dq - k); dr <= Math.min(k, -dq + k); dr++) { const t = w.tiles.get(key(q + dq, r + dr)); if (t) out.push(t); }
     return out;
   }
-  const effMass = (K, c) => c.mass * (c.smashT > 0 ? K.smashMass : 1);
+  const effMass = (K, c) => c.mass * (c.smashT > 0 ? K.smashMass : 1) * (c.qk === 'big' ? K.bigMassMul : c.qk === 'small' ? K.smallMassMul : 1);
+  const qOut = (K, c) => c.qk === 'big' ? K.bigOutForce : c.qk === 'small' ? K.smallOutForce : 1; // outgoing knockback multiplier (Quantum Shift)
+  const qIn = (K, c) => c.qk === 'big' ? K.bigInForce : c.qk === 'small' ? K.smallInForce : 1;   // incoming knockback multiplier
   function rnd(w) { w.rs = (w.rs + 0x6D2B79F5) >>> 0; let t = w.rs; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; }
   function clearTile(w, t) { t.o = null; t.oh = []; w.oilClr.push(t); w.oilList = w.oilList.filter(x => x !== t); }
   function clearOil(w, id) { for (const t of w.oilList.slice()) if (t.o === id) clearTile(w, t); } // max 1 deployment per player
   function coatAround(w, c) {
+    const sz = c.sz;
     const fx = Math.sin(c.yaw), fz = Math.cos(c.yaw);
     for (const [a, b] of [[0, 0], [.6, 1], [-.6, 1], [.6, -1], [-.6, -1]]) {
-      const t = w.tiles.get(key(...xzHex(c.x + fz * a + fx * b, c.z - fx * a + fz * b)));
-      if (t && t.s === 0 && t.o !== c.id) { const had = !!t.o; t.o = c.id; t.oh = []; t.ot = w.t + w.cfg.oilLife; if (!had) w.oilList.push(t); w.oilLog.push(t); }
+      const t = w.tiles.get(key(...xzHex(c.x + fz * a * sz + fx * b * sz, c.z - fx * a * sz + fz * b * sz)));
+      if (t && t.s === 0 && t.o !== c.id) { const had = !!t.o; t.o = c.id; t.dep = c.oilDep; t.oh = []; t.ot = w.t + w.cfg.oilLife; if (!had) w.oilList.push(t); w.oilLog.push(t); }
     }
   }
   // Items float above EXISTING geometry only: floor tiles, ramps, mid platforms, high platform. Never dead center.
@@ -155,7 +165,7 @@
       const r = rnd(w); let x, z, y, ti = -1; // category first (ground 30% / ramp 20% / mid 30% / high 20%), then a valid point inside it
       if (r < 0.3) { const t = w.list[Math.floor(rnd(w) * w.list.length)]; if (t.s !== 0) continue; x = t.x; z = t.z; y = 0; ti = t.i; }
       else if (r < 0.5 && w.ramps.length) {
-        const p = w.ramps[Math.floor(rnd(w) * w.ramps.length)];
+        const p = w.ramps[Math.floor(rnd(w) * w.ramps.length)]; if (p.gone) continue;
         x = p.x + (rnd(w) * 2 - 1) * p.hw * 0.8; z = p.z + (rnd(w) * 2 - 1) * p.hw * 0.8;
         y = p.h * (1 - Math.max(Math.abs(x - p.x), Math.abs(z - p.z)) / p.hw);
       } else {
@@ -196,7 +206,7 @@
     if (t.ring >= w.shrinkRing - 3) return 0.7; // rim of the (shrinking) arena: keep a safety margin
     return 0;
   }
-  const onRamp = (w, x, z) => w.ramps.some(p => Math.max(Math.abs(x - p.x), Math.abs(z - p.z)) < p.hw + 1);
+  const onRamp = (w, x, z) => w.ramps.some(p => !p.gone && Math.max(Math.abs(x - p.x), Math.abs(z - p.z)) < p.hw + 1);
   function pickGoal(w, c, opps) {
     let foe = null, fs = 1e9;
     for (const o of opps) {
@@ -232,6 +242,7 @@
     if (type === 'shock') return near(K.shockwaveRadius * 0.4).length > 0 || near(K.shockwaveRadius * 0.7).length > 1 || (stale && near(K.shockwaveRadius).length > 0);
     if (type === 'boost') { const d = foe ? Math.hypot(foe.x - c.x, foe.z - c.z) : 0; return (d > 6 && d < 22 && Math.abs(err) < 0.25) || stale; }
     if (type === 'collapse') return near(48).length > 0 || stale;
+    if (type === 'quantum') return c.qT <= 0 && (near(34).length > 0 || stale);
     if (type === 'oil') { const fx = Math.sin(c.yaw), fz = Math.cos(c.yaw); // someone chasing us
       return (c.st === 'G' && live.some(o => { const dx = o.x - c.x, dz = o.z - c.z, d = Math.hypot(dx, dz); return d < 22 && d > 3 && (dx * fx + dz * fz) / d < -0.3; })) || stale; }
     if (type === 'ghost') return c.ghostT <= 0 && (live.some(o => { const dx = c.x - o.x, dz = c.z - o.z, d = Math.hypot(dx, dz); if (d > 12 || d < 0.1) return false; return (o.vx * dx + o.vz * dz) / d > 10 || (o.smashT > 0 && d < 10); }) || stale);
@@ -301,14 +312,18 @@
   function activate(w, c) {
     const K = w.cfg, type = c.inv[0]; let ok = true;
     if (type === 'boost') { c.boostT = K.boostTime; c.vx += Math.sin(c.yaw) * K.boostKick; c.vz += Math.cos(c.yaw) * K.boostKick; w.events.push({ k: 'boost', id: c.id }); }
-    else if (type === 'ghost') c.ghostT = K.ghostPhaseDuration;
-    else if (type === 'oil') { if (c.oilT > 0) ok = false; else { clearOil(w, c.id); c.oilT = K.oilTime; } }
+    else if (type === 'ghost') { if (c.ghostCd > 0) ok = false; else c.ghostT = K.ghostPhaseStack ? c.ghostT + K.ghostPhaseDuration : K.ghostPhaseDuration; } // 2nd Ghost Phase while active ADDS time
+    else if (type === 'quantum') { // 50/50: BIG juggernaut or SMALL speedster
+      if (c.qT > 0) ok = false;
+      else { c.qk = rnd(w) < 0.5 ? 'big' : 'small'; c.qT = K.quantumDuration; w.events.push({ k: 'quantum', id: c.id, kind: c.qk }); }
+    }
+    else if (type === 'oil') { if (c.oilT > 0) ok = false; else { clearOil(w, c.id); c.oilT = K.oilTime; c.oilDep = ++w.depId; } }
     else if (type === 'shock') { // radial blast, force decays with distance from the epicenter
       w.events.push({ k: 'shock', x: c.x, y: c.y, z: c.z, r: K.shockwaveRadius });
       for (const o of w.cars) {
         if (o === c || !o.alive || o.ghostT > 0) continue;
         const dx = o.x - c.x, dz = o.z - c.z, d = Math.hypot(dx, dz); if (d >= K.shockwaveRadius) continue;
-        const f = K.shockwaveForce * Math.pow(1 - d / K.shockwaveRadius, 1.5) / effMass(K, o);
+        const f = K.shockwaveForce * Math.pow(1 - d / K.shockwaveRadius, 1.5) / effMass(K, o) * qIn(K, o);
         const nx = d > 1e-6 ? dx / d : 0, nz = d > 1e-6 ? dz / d : 1, dn = o.vx * nx + o.vz * nz, add = Math.max(f, dn) - dn;
         o.vx += nx * add; o.vz += nz * add;
       }
@@ -347,7 +362,14 @@
     const K = w.cfg, st = inp.steer || 0, y0 = c.y;
     if (c.buf > 0) c.buf--;
     if (c.bcd > 0) c.bcd--;
+    const g0 = c.ghostT;
     for (const k2 of TM) if (c[k2] > 0) c[k2] = Math.max(0, c[k2] - dt);
+    if (g0 > 0 && c.ghostT === 0) c.ghostCd = K.ghostPhaseCooldown;           // optional cooldown starts when Ghost Phase ends
+    if (c.slick === 0 && c.slickDeps.length) c.slickDeps = [];                 // slip over: forget which slicks already hit us
+    if (c.qk && c.qT <= 0) c.qk = null;                                         // Quantum Shift expired
+    const tg = c.qk === 'big' ? K.bigScale : c.qk === 'small' ? K.smallScale : 1; // size eases toward its target (visual + physics)
+    c.sz += (tg - c.sz) * Math.min(1, 10 * dt); if (Math.abs(tg - c.sz) < 0.002) c.sz = tg;
+    const qs = c.qk === 'big' ? K.bigSpeedMul : c.qk === 'small' ? K.smallSpeedMul : 1, qt = c.qk === 'big' ? K.bigTurnMul : c.qk === 'small' ? K.smallTurnMul : 1, qa = c.qk === 'small' ? K.smallAccelMul : 1;
     if (inp.power && c.inv.length) activate(w, c); // Space: use first item in inventory
     if (c.evT > 0 && --c.evT === 0) c.ev = '';
     const hop = ev => { c.vy = K.jumpV + K.rampJump * Math.max(c.rise, 0); c.st = 'J'; c.rise = 0; c.gs = 0; c.buf = 0;
@@ -365,9 +387,9 @@
         else { c.ev = 'NO-FLY'; c.evT = 40; } // FALLING / DROPPED: jump does nothing
       }
     }
-    c.yaw -= st * K.steer * (c.slick > 0 ? K.oilSteer : 1) * dt; // oil: no tight turns
-    const sp = c.drive ? K.speed * (c.st === 'F' ? K.flightMul : 1) * (c.boostT > 0 ? K.boostMul : 1) : 0;
-    const k = Math.min(1, (c.st === 'G' ? (c.slick > 0 ? K.oilGrip : K.grip) : K.air) * dt); // oil: no traction
+    c.yaw -= st * K.steer * (c.slick > 0 ? K.oilSteer : 1) * qt * dt; // oil: no tight turns; BIG turns wider
+    const sp = c.drive ? K.speed * (c.st === 'F' ? K.flightMul : 1) * (c.boostT > 0 ? K.boostMul : 1) * qs : 0;
+    const k = Math.min(1, (c.st === 'G' ? (c.slick > 0 ? K.oilGrip : K.grip * qa) : K.air * qa) * dt); // oil: no traction; SMALL accelerates 2x
     c.vx += (Math.sin(c.yaw) * sp - c.vx) * k;
     c.vz += (Math.cos(c.yaw) * sp - c.vz) * k;
     if (c.st === 'F') c.vy += (-K.flightSink - c.vy) * Math.min(1, K.flightDamp * dt);
@@ -404,14 +426,18 @@
     }
     if (c.st === 'G' && c.y < 0.1) { // oil: hitting a slick (not your own) kills traction; dispensing coats tiles under you
       const ct = w.tiles.get(key(...xzHex(c.x, c.z)));
-      if (ct && ct.o && ct.o !== c.id && !ct.oh.includes(c.id)) { c.slick = K.slickT; if (K.oilClearAll) clearTile(w, ct); else { ct.oh.push(c.id); w.oilHit.push(ct); } }
+      if (ct && ct.o && ct.o !== c.id && !ct.oh.includes(c.id)) {
+        const dep = ct.dep || 0, D = K.oilSlickSlipDuration;
+        if (!c.slickDeps.includes(dep)) { c.slickDeps.push(dep); c.slick = K.oilSlipStack ? c.slick + D : Math.max(c.slick, D); } // each different slick ADDS its slip time
+        else c.slick = Math.max(c.slick, Math.min(D, 0.35));                                                                          // same trail: stay slippery while on it
+        if (K.oilClearAll) clearTile(w, ct); else { ct.oh.push(c.id); w.oilHit.push(ct); } }
       if (c.oilT > 0) coatAround(w, c);
     }
     if (c.decay && c.oilT <= 0 && c.st === 'G' && c.y < 0.1) { // 4 wheel contact points (decaying cars only; tiles are immune while you dispense oil)
       const fx = Math.sin(c.yaw), fz = Math.cos(c.yaw);
       for (const [a, b] of [[.6, 1], [-.6, 1], [.6, -1], [-.6, -1]]) {
-        const t = w.tiles.get(key(...xzHex(c.x + fz * a + fx * b, c.z - fx * a + fz * b)));
-        if (t && t.s === 0) { t.s = 1; t.t = K.fallDelay; w.active.push(t); w.redLog.push(t); }
+        const t = w.tiles.get(key(...xzHex(c.x + (fz * a + fx * b) * c.sz, c.z + (-fx * a + fz * b) * c.sz)));
+        if (t && t.s === 0) { t.s = 1; t.t = c.qk === 'big' ? K.fallDelay / K.bigTileFall : K.fallDelay; w.active.push(t); w.redLog.push(t); } // BIG: tiles drop 50% faster
       }
     }
     c.gs = c.st === 'G' ? 0 : Math.min(999, c.gs + 1);
@@ -425,6 +451,7 @@
     for (const c of cs) if (c.alive && c.y < ELIM_Y) { c.alive = false; c.vx = c.vy = c.vz = 0; } // eliminated: frozen, no collisions/decay
     judgeRound(w);
     shrinkStep(w);
+    rampStep(w);
     itemsStep(w);
     let n = 0;
     for (const t of w.active) {
@@ -439,7 +466,7 @@
     for (let i = 0; i < cs.length; i++) for (let j = i + 1; j < cs.length; j++) {
       const a = cs[i], b = cs[j];
       if (!a.alive || !b.alive || a.ghostT > 0 || b.ghostT > 0 || Math.abs(a.y - b.y) > 1.5) continue; // ghosts: intangible both ways
-      let nx = b.x - a.x, nz = b.z - a.z; const d = Math.hypot(nx, nz), m2 = 2 * K.carR;
+      let nx = b.x - a.x, nz = b.z - a.z; const d = Math.hypot(nx, nz), m2 = (a.sz + b.sz) * K.carR; // hit radius follows size
       if (d >= m2 || d === 0) continue;
       nx /= d; nz /= d; // a -> b
       const o = m2 - d;
@@ -452,8 +479,8 @@
       const rl = Math.hypot(rvx, rvz), align = rl > 1e-6 ? closing / rl : 0; // cos(impact angle): 1 head-on, ->0 glancing
       const sA = Math.max(0, A.vx * mx + A.vz * mz);                         // attacker speed toward defender
       const mA = effMass(K, A), mD = effMass(K, D), mr = 2 * mA / (mA + mD);  // Power Smash: +mass
-      const F = (K.baseBumpForce * align + K.speedToForceRatio * sA) * mr * (A.smashT > 0 ? K.smashBump : 1);
-      const kn = F * K.defenderKnockbackMult;
+      const F = (K.baseBumpForce * align + K.speedToForceRatio * sA) * mr * (A.smashT > 0 ? K.smashBump : 1) * qOut(K, A);
+      const kn = F * K.defenderKnockbackMult * qIn(K, D);                         // BIG hits hard / takes little, SMALL the opposite
       D.bcd = 8;
       if (sh) { // Energy Shield: defender takes nothing; attacker is thrown back
         const smash = A.smashT > 0, back = smash ? kn * K.shatterReflect : K.shieldBounce;
@@ -466,6 +493,16 @@
       const rec = Math.min(1, K.attackerRecoil * mD / mA);                    // attacker keeps ~(1-recoil) of forward speed
       const an = A.vx * mx + A.vz * mz;
       if (an > 0) { A.vx -= mx * an * rec; A.vz -= mz * an * rec; }
+    }
+  }
+
+  // Ramps optionally fall with their floor: a ramp is 'gone' while the tile under its center is fallen (mirrors it, incl. respawn).
+  function rampStep(w) {
+    const on = w.cfg.rampsFallWithFloor;
+    for (const p of w.ramps) {
+      const t = w.tiles.get(key(...xzHex(p.x, p.z))), gone = !!on && (!t || t.s === 2);
+      if (gone && !p.gone) p.ft = w.t;
+      p.gone = gone;
     }
   }
 
@@ -503,6 +540,7 @@
   function resetRound(w) {
     for (const t of w.list) { t.s = 0; t.t = 0; t.ft = 0; t.fs = 1; t.o = null; t.oh = []; t.perm = false; }
     w.active.length = 0; w.queue.length = 0; w.qh = 0; w.redLog.length = w.fallLog.length = w.regenLog.length = 0;
+    for (const p of w.ramps) { p.gone = false; p.ft = 0; }
     w.items = []; w.nextSpawn = -1; w.oilList = []; w.oilLog.length = w.oilClr.length = w.oilHit.length = w.events.length = 0;
     for (const c of w.cars) Object.assign(c, car(c.id, c.sp.x, c.sp.z, c.sp.yaw, c.mass, c.drive, c.decay), { bot: c.bot });
     w.round = { phase: 'play', winner: null, t: 0 }; w.rs0 = w.t; w.shrinkRing = w.N; w.shrinkN = 0; // zone timer restarts with the round
