@@ -18,6 +18,8 @@
     // ---- POWER-UPS ----
     puOn: true, puMax: 3, pickupSpawnMinDelay: 4.5, pickupSpawnMaxDelay: 8.0, invMax: 3, invDup: true, allowDuplicatePassives: false, // board cap, spawn delay range (s), inventory size
     smashMass: 1.5, smashBump: 2.2, powerSmashDuration: 10,      // Power Smash: mass x, bump force x, duration (s)
+    shieldExpire: true, shieldDuration: 120,           // Energy Shield auto-expires per player after 120 s (shieldExpire off = lasts until broken)
+    showOppItems: true,                                // show opponents' held power-ups above their nametag (UI, synced from the host)
     shieldHits: 3, shieldBounce: 14, shatterReflect: 1.3, // Energy Shield: hits absorbed, attacker bounce speed, shatter blast vs Smash
     boostMul: 1.7, boostTime: 1.5, boostKick: 10,       // Speed Boost: speed x, duration, instant kick
     shockwaveForce: 150, shockwaveRadius: 50,                     // Kinetic Shockwave
@@ -101,7 +103,7 @@
   // gs=frames since last grounded, hopped=ground jump used this flight, buf=frames left on buffered press, ev=last jump decision
   // decay=false (dummy bots) -> this car never triggers tile decay
   const car = (id, x, z, yaw, mass, drive = true, decay = true) => ({ id, x, y: 0, z, vx: 0, vy: 0, vz: 0, yaw, mass, drive, decay,
-    st: 'G', gs: 0, ev: '', evT: 0, buf: 0, bcd: 0, bot: false, ai: null, alive: true, sp: { x, z, yaw }, inv: [], smashT: 0, shield: 0, boostT: 0, ghostT: 0, oilT: 0, slick: 0, slickDeps: [], oilDep: 0, ghostCd: 0, qk: null, qT: 0, sz: 1, roll: 0, rollT: -1, rollDir: 0, rise: 0 });
+    st: 'G', gs: 0, ev: '', evT: 0, buf: 0, bcd: 0, bot: false, ai: null, alive: true, sp: { x, z, yaw }, inv: [], smashT: 0, shield: 0, boostT: 0, ghostT: 0, oilT: 0, shieldT: 0, slick: 0, slickDeps: [], oilDep: 0, ghostCd: 0, qk: null, qT: 0, sz: 1, roll: 0, rollT: -1, rollDir: 0, rise: 0 });
 
   function create(o = {}) {
     const w = { t: 0, cfg: C, tiles: new Map(), list: [], active: [], queue: [], qh: 0, redLog: [], fallLog: [], regenLog: [],
@@ -184,7 +186,7 @@
     const K = w.cfg;
     // Passives already active: refused unless allowDuplicatePassives (then Smash adds time, Shield adds hits)
     if (type === 'smash') { if (c.smashT > 0) { if (!K.allowDuplicatePassives) return false; c.smashT += K.powerSmashDuration; } else c.smashT = K.powerSmashDuration; return true; }
-    if (type === 'shield') { if (c.shield > 0) { if (!K.allowDuplicatePassives) return false; c.shield += K.shieldHits; } else c.shield = K.shieldHits; return true; }
+    if (type === 'shield') { if (c.shield > 0) { if (!K.allowDuplicatePassives) return false; c.shield += K.shieldHits; } else c.shield = K.shieldHits; c.shieldT = K.shieldDuration; return true; } // fresh personal timer
     if (c.inv.length >= K.invMax || (!K.invDup && c.inv.includes(type))) return false;
     c.inv.push(type); return true;
   }
@@ -365,6 +367,11 @@
     const g0 = c.ghostT;
     for (const k2 of TM) if (c[k2] > 0) c[k2] = Math.max(0, c[k2] - dt);
     if (g0 > 0 && c.ghostT === 0) c.ghostCd = K.ghostPhaseCooldown;           // optional cooldown starts when Ghost Phase ends
+    if (c.shield <= 0) c.shieldT = 0;                                           // personal shield timer (each player's own clock)
+    else {
+      if (c.shieldT <= 0) c.shieldT = K.shieldDuration;
+      if (K.shieldExpire && (c.shieldT -= dt) <= 0) { c.shield = 0; c.shieldT = 0; w.events.push({ k: 'shieldExpire', id: c.id }); }
+    }
     if (c.slick === 0 && c.slickDeps.length) c.slickDeps = [];                 // slip over: forget which slicks already hit us
     if (c.qk && c.qT <= 0) c.qk = null;                                         // Quantum Shift expired
     const tg = c.qk === 'big' ? K.bigScale : c.qk === 'small' ? K.smallScale : 1; // size eases toward its target (visual + physics)
