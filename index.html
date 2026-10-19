@@ -43,7 +43,9 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;bac
 .slot em{position:absolute;top:-9px;left:50%;transform:translateX(-50%);font-style:normal;font-size:9px;font-weight:800;background:var(--ac);color:#2a1d00;padding:2px 7px;border-radius:6px}
 .slot.empty{background:transparent;box-shadow:none;border:2px dashed #3a4258}
 #inv .chips span{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border-radius:8px;padding:4px 9px 4px 5px;font-size:11px;box-shadow:0 3px 0 #0d0f15}
-#lobby{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:15;pointer-events:none;background:rgba(10,12,18,.55)}
+#lobby{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;gap:18px;flex-wrap:wrap;overflow:auto;padding:16px;box-sizing:border-box;z-index:15;pointer-events:none;background:rgba(10,12,18,.55)}
+#dock{pointer-events:auto;width:460px;max-width:94vw;max-height:88vh;display:flex}
+#m.docked{position:static;width:100%;max-height:88vh;box-shadow:0 8px 0 #0d0f15}
 #lobby .card{pointer-events:auto;width:420px;max-width:92vw;background:var(--bg);border-radius:18px;padding:22px;box-shadow:0 8px 0 #0d0f15;display:flex;flex-direction:column;gap:12px}
 #lobby h2{margin:0;font-size:18px;letter-spacing:.12em}
 #lobby label{font-size:11px;letter-spacing:.08em;color:var(--mu);display:flex;flex-direction:column;gap:6px}
@@ -71,6 +73,8 @@ input.num:focus{border-color:var(--ac)}input.num.clamped{border-color:var(--bad)
 .unit{font-size:11px;color:var(--mu);min-width:8px}.lk{font-size:12px;color:var(--mu);font-variant-numeric:tabular-nums}
 .lockmsg{background:#3a2a10;color:#ffd699;border-radius:10px;padding:8px 10px;margin-bottom:8px;font-size:11px;line-height:1.4}
 .tag{text-align:center}.tag .ti{display:flex;justify-content:center;gap:3px;margin-bottom:3px}.tag .ti:empty{display:none}
+#rules{display:none;background:var(--card);border-radius:12px;padding:10px 12px;font-size:12px;line-height:1.55}.rh{font-size:10px;letter-spacing:.08em;color:var(--mu);margin-bottom:4px}
+.pl .pn{flex:1}.kick{margin-left:8px;padding:4px 9px;border-radius:7px;background:#5b2b2b;color:#ffb3ab;font-size:9px;font-weight:800;letter-spacing:.05em;box-shadow:0 2px 0 #3a1a1a}.kick.armed{background:var(--bad);color:#fff}
 #h{position:fixed;top:14px;right:14px;background:var(--bg);border-radius:12px;padding:10px 14px;text-align:right;white-space:pre;font-size:12px;box-shadow:0 4px 0 #0d0f15}
 </style>
 <div id=m><h1 id=mt>LOBBY SETTINGS</h1><div id=tabs></div><div id=body></div>
@@ -83,37 +87,221 @@ input.num:focus{border-color:var(--ac)}input.num.clamped{border-color:var(--bad)
   <div class=col><button class=btn id=hostBtn>HOST GAME</button></div>
   <div class=col><input id=joinCode maxlength=4 placeholder="ROOM ID" autocomplete=off><button class=btn id=joinBtn>JOIN GAME</button></div>
  </div>
- <div id=room></div><div id=cap></div><div id=plist></div><div id=lmsg></div>
+ <div id=room></div><div id=cap></div><div id=plist></div><div id=rules></div><div id=lmsg></div>
  <button class=btn id=startBtn>START MATCH</button><button class=link id=practice>Practice offline (bots)</button>
-</div></div>
+</div><div id=dock></div></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://unpkg.com/peerjs@1.5.1/dist/peerjs.min.js"></script>
 <script src="sim.js"></script>
 <script>
-const DT=1/60,C=Sim.C,$=id=>document.getElementById(id),view={hud:true,cam:8.5};
-// ---- remappable input ----
-const kb={left:['KeyA','ArrowLeft'],right:['KeyD','ArrowRight'],jump:['KeyW','ArrowUp'],power:['Space']};
-try{Object.assign(kb,JSON.parse(localStorage.kb))}catch(e){}
-const down=new Set(),held=a=>kb[a].some(c=>down.has(c));let rb=null,tab='DRIVE',jl=false,pl=false,jc=0,pc=0,mode='lobby',panelOpen=false,drawSig='';
-const NAMES={left:'Steer left',right:'Steer right',jump:'Jump / flight',power:'Use power-up'};
-// ---- multiplayer state (PeerJS). Host = authoritative sim; clients = dumb terminals ----
-const net={role:'none',peer:null,conns:{},hostConn:null,roster:[],myId:'p',code:'',live:false,scores:{},interAt:0,cn:0,inp:{},snaps:[],sendT:0,cfgT:0,d:{ts:new Set(),os:new Set(),ev:[]}};
-const esc=s=>String(s).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-const cleanName=s=>String(s||'').replace(/[\u0000-\u001f<>]/g,'').trim().slice(0,14)||'Player';
-const myName=()=>cleanName($('pname').value);
-addEventListener('keydown',e=>{
-  if(e.target&&/^(INPUT|TEXTAREA)$/.test(e.target.tagName||''))return; // typing in lobby/settings fields never triggers game keys
-  if(rb){kb[rb]=[e.code];try{localStorage.kb=JSON.stringify(kb)}catch(_){}rb=null;draw();e.preventDefault();return}
-  down.add(e.code);if(!overlayOn()&&!me().alive){if(kb.left.includes(e.code))spec.i--;if(kb.right.includes(e.code))spec.i++}if(!e.repeat&&kb.jump.includes(e.code)){jl=true;jc++}if(!e.repeat&&kb.power.includes(e.code)){pl=true;pc++}if(e.code==='KeyR')doReset();if(e.code==='KeyH')toggle();
-  if(e.code.startsWith('Arrow')||e.code==='Space')e.preventDefault()});
-addEventListener('keyup',e=>down.delete(e.code));addEventListener('blur',()=>{down.clear();jl=false;pl=false});
-// ---- settings UI ----
-// global UI preferences (per device): which numeric controls the settings menu shows
-const uiPrefs=(()=>{const d={sliders:true,inputs:true};try{Object.assign(d,JSON.parse(localStorage['rsr.ui.v1']))}catch(e){}return d})();
-const saveUi=()=>{try{localStorage['rsr.ui.v1']=JSON.stringify(uiPrefs)}catch(e){}};
-const mkEl=(tag,cls,txt)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(txt!==undefined)e.textContent=txt;return e};
-const UNIT={regen:'s',mapShrinkInitialDelay:'s',mapShrinkInterval:'s',ghostPhaseDuration:'s',ghostPhaseCooldown:'s',oilSlickSlipDuration:'s',quantumDuration:'s',powerSmashDuration:'s',shieldDuration:'s',hexCollapseWarningTime:'s',fallDelay:'s',rollTime:'s',pickupSpawnMinDelay:'s',pickupSpawnMaxDelay:'s',boostTime:'s',oilTime:'s',oilLife:'s'};
-const fmtT=s=>{const q=Math.ceil(s);return Math.floor(q/60)+':'+String(q%60).padStart(2,'0')};
+/**
+ * ARENA SURVIVAL - browser client.
+ *
+ * Responsibilities (in file order):
+ *   1. input + key bindings           5. world rendering (three.js)
+ *   2. settings schema + panel UI     6. networking (host-authoritative, client prediction, interpolation)
+ *   3. lobby (host / join / kick)     7. main frame loop + HUD
+ *   4. UI preferences
+ *
+ * Networking summary
+ *   HOST   runs the one authoritative simulation (sim.js) at a fixed 60 Hz, buffers every player's input commands
+ *          (jitter buffer, same depth for the host), and sends compact state snapshots at `netSnapshotRate` Hz.
+ *   CLIENT predicts its OWN car locally with the same sim code (instant response), reconciles with the host's
+ *          acknowledged state (replaying unacknowledged commands), and INTERPOLATES everybody else between
+ *          host snapshots on the host's clock (smooth, jitter tolerant).
+ *   TRANSPORT two PeerJS data channels per client: "ctl" (reliable: lobby, config, tile/oil/event deltas) and
+ *          "game" (unreliable: input commands + state snapshots, so a lost packet never stalls the game).
+ */
+
+/** Fixed simulation step in seconds (must match the host). */
+const DT = 1 / 60;
+/** Live game configuration object shared with sim.js (host settings, synced to clients). */
+const C = Sim.C;
+/** Client-only view options (HUD visibility, chase-camera distance). */
+const view = { hud: true, cam: 8.5 };
+
+/**
+ * Short DOM lookup.
+ * @param {string} id - element id
+ * @returns {HTMLElement} the element
+ */
+const $ = id => document.getElementById(id);
+
+// ------------------------------------------------------------------ input ---
+
+/** Key bindings per action (KeyboardEvent.code values); the player can remap them in the KEYS tab. */
+const kb = { left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'], jump: ['KeyW', 'ArrowUp'], power: ['Space'] };
+try { Object.assign(kb, JSON.parse(localStorage.kb)); } catch (e) { /* no saved bindings */ }
+/** Human-readable action names for the KEYS tab. */
+const NAMES = { left: 'Steer left', right: 'Steer right', jump: 'Jump / flight', power: 'Use power-up' };
+
+/** Currently pressed key codes. */
+const down = new Set();
+/**
+ * Whether any key bound to an action is held.
+ * @param {string} a - action name (left/right/jump/power)
+ * @returns {boolean} true while held
+ */
+const held = a => kb[a].some(c => down.has(c));
+
+// Mutable UI / input state.
+let rb = null;               // action currently being re-bound (waiting for a key), or null
+let tab = 'DRIVE';           // active settings tab
+let jl = false, pl = false;  // latched fresh jump / power presses, consumed by the next simulation tick
+let mode = 'lobby';          // 'lobby' | 'offline' | 'host' | 'client'
+let panelOpen = false;       // floating settings panel open (during a match)
+let drawSig = '';            // 'H' (host/offline: full settings) or 'C' (client: keys only) - what the panel last drew
+let dockedNow = false;       // settings panel currently docked inside the lobby screen
+
+/**
+ * Network / lobby state. See the header comment for the protocol.
+ * @type {{role:string, peer:object|null, conns:Object, gconns:Object, tok:Object, cq:Object, hseq:number,
+ *   hostConn:object|null, gameConn:object|null, roster:Array, myId:string, code:string, live:boolean, scores:Object,
+ *   interAt:number, cn:number, snaps:Array, lastT:number, clk:object, pred:object, rtt:number, sendT:number,
+ *   cfgT:number, d:object}}
+ */
+const net = {
+  role: 'none',      // 'none' | 'host' | 'client'
+  peer: null,        // PeerJS peer
+  conns: {},         // host: reliable control connection per client id
+  gconns: {},        // host: unreliable game connection per client id
+  tok: {},           // host: secret token per client id (binds the game channel to the right client)
+  cq: {},            // host: input command queue per player id
+  hseq: 0,           // host: sequence counter for the host's own commands
+  hostConn: null,    // client: reliable control connection to the host
+  gameConn: null,    // client: unreliable game connection to the host (null = fall back to hostConn)
+  roster: [],        // [{id, name, sc?}] lobby players
+  myId: 'p',         // my car id ('p' = host / offline)
+  code: '',          // room code
+  live: false,       // a round is running (false = lobby / intermission)
+  scores: {},        // cumulative scores across rounds in this room
+  interAt: 0,        // time at which the post-round intermission starts
+  cn: 0,             // host: client counter for unique ids
+  snaps: [],         // client: interpolation buffer of host snapshots (by host time)
+  lastT: -1,         // client: host time of the newest snapshot received
+  clk: { off: null, jit: 0, lastArr: 0, lastT: 0 }, // client: host-clock estimate + arrival jitter
+  pred: { seq: 0, pending: [], corr: { x: 0, y: 0, z: 0 } }, // client: prediction state
+  rtt: 0,            // client: smoothed round-trip time (ms)
+  sendT: 0,          // host: time accumulator for the snapshot timer
+  cfgT: 0,           // host: debounce timer for config broadcasts
+  d: { ts: new Set(), os: new Set(), ev: [] } // host: tile / oil / event changes since the last broadcast
+};
+
+/**
+ * Escapes text for safe use in innerHTML.
+ * @param {*} s - any value
+ * @returns {string} HTML-escaped string
+ */
+const esc = s => String(s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+
+/**
+ * Cleans a player name: strips control characters and angle brackets, trims, limits to 14 characters.
+ * @param {*} s - raw name
+ * @returns {string} safe name ('Player' if empty)
+ */
+const cleanName = s => String(s || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 14) || 'Player';
+
+/**
+ * The name currently typed in the lobby name box.
+ * @returns {string} cleaned name
+ */
+const myName = () => cleanName($('pname').value);
+
+/**
+ * Whether the local player may edit game rules (host or offline practice).
+ * @returns {boolean} true for host / offline
+ */
+function canEdit() { return mode === 'offline' || net.role === 'host'; }
+
+/**
+ * Post-match intermission: connected to a room but no round running (lobby screen shows again, same room).
+ * @returns {boolean} true during intermission
+ */
+function inter() { return (mode === 'host' || mode === 'client') && !net.live; }
+
+/**
+ * Whether the lobby overlay is on screen (initial lobby or intermission).
+ * @returns {boolean} true if the lobby is visible
+ */
+function overlayOn() { return mode === 'lobby' || inter(); }
+
+/**
+ * Keydown handler: key re-binding, spectator switching, latching fresh jump/power presses, host hotkeys.
+ * Typing in text boxes never triggers game keys.
+ * @param {KeyboardEvent} e - the event
+ * @returns {void}
+ */
+function onKeyDown(e) {
+  if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName || '')) return;
+  if (rb) { // waiting for the new key of a binding
+    kb[rb] = [e.code];
+    try { localStorage.kb = JSON.stringify(kb); } catch (_) { /* storage blocked */ }
+    rb = null; draw(); e.preventDefault(); return;
+  }
+  down.add(e.code);
+  if (!overlayOn() && !me().alive) { // spectating: steer keys cycle through survivors
+    if (kb.left.includes(e.code)) spec.i--;
+    if (kb.right.includes(e.code)) spec.i++;
+  }
+  if (!e.repeat && kb.jump.includes(e.code)) jl = true;
+  if (!e.repeat && kb.power.includes(e.code)) pl = true;
+  if (e.code === 'KeyR') doReset();
+  if (e.code === 'KeyH') toggle();
+  if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
+}
+addEventListener('keydown', onKeyDown);
+addEventListener('keyup', e => down.delete(e.code));
+addEventListener('blur', () => { down.clear(); jl = false; pl = false; });
+
+// ------------------------------------------------------------- UI settings ---
+
+/** Per-device UI preferences: which numeric controls the settings menu shows. */
+const uiPrefs = (() => {
+  const d = { sliders: true, inputs: true };
+  try { Object.assign(d, JSON.parse(localStorage['rsr.ui.v1'])); } catch (e) { /* defaults */ }
+  return d;
+})();
+
+/**
+ * Saves the UI preferences to localStorage.
+ * @returns {void}
+ */
+const saveUi = () => { try { localStorage['rsr.ui.v1'] = JSON.stringify(uiPrefs); } catch (e) { /* storage blocked */ } };
+
+/**
+ * Creates a DOM element.
+ * @param {string} tag - tag name
+ * @param {string} [cls] - class name
+ * @param {string} [txt] - text content
+ * @returns {HTMLElement} the new element
+ */
+const mkEl = (tag, cls, txt) => {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (txt !== undefined) e.textContent = txt;
+  return e;
+};
+
+/** Unit suffix shown next to numeric settings. */
+const UNIT = {
+  regen: 's', mapShrinkInitialDelay: 's', mapShrinkInterval: 's', ghostPhaseDuration: 's', ghostPhaseCooldown: 's',
+  oilSlickSlipDuration: 's', quantumDuration: 's', powerSmashDuration: 's', shieldDuration: 's', hexCollapseWarningTime: 's',
+  fallDelay: 's', rollTime: 's', pickupSpawnMinDelay: 's', pickupSpawnMaxDelay: 's', boostTime: 's', oilTime: 's', oilLife: 's',
+  netInterpDelay: 'ms', netSnapshotRate: 'Hz', netInputDelay: 'ticks'
+};
+
+/**
+ * Formats seconds as m:ss.
+ * @param {number} s - seconds
+ * @returns {string} e.g. "1:59"
+ */
+const fmtT = s => { const q = Math.ceil(s); return Math.floor(q / 60) + ':' + String(q % 60).padStart(2, '0'); };
+
+// ----------------------------------------------------------- settings schema ---
+/**
+ * Settings schema: tab -> rows. A row is [object, key, label, min, max, step, tooltip] for numbers or
+ * [object, key, label, 'toggle', tooltip] for switches. Rows bind to the shared config `C` (host-only) or to UI / view options.
+ */
 const G={
  DRIVE:[[C,'speed','Cruise speed',10,60,1,'Constant forward speed of every car.'],
   [C,'steer','Steering rate',.5,6,.1,'How fast the car turns while a steer key is held.'],
@@ -188,344 +376,1733 @@ const G={
   [C,'smallSpeedMul','SMALL top speed',1,3,.1,'2.0 = double speed.'],
   [C,'smallAccelMul','SMALL acceleration',1,4,.1,'How much faster it reaches top speed.'],
   [C,'smallTurnMul','SMALL turn rate',.5,2,.05,'Steering multiplier (raise it if 2x speed feels slippery).']],
+ NET:[[C,'netPrediction','Client prediction','toggle','Clients simulate their own car locally for instant response and reconcile with the host. Off = pure dumb terminal (laggy; for comparison).'],
+  [C,'netInputDelay','Input buffer',0,10,1,'Ticks (1/60 s) of input buffering applied to EVERY player including the host. Absorbs network jitter and keeps things fair. 0 = none.'],
+  [C,'netSnapshotRate','Snapshot rate',10,60,1,'State packets per second sent to clients. Higher = smoother remote cars, more bandwidth.'],
+  [C,'netInterpDelay','Interpolation delay',0,300,5,'Milliseconds remote cars are drawn in the past to stay smooth. 0 = automatic from measured jitter.']],
  VIEW:[[uiPrefs,'sliders','Show sliders','toggle','Show a slider on numeric settings. If sliders AND text boxes are off, numeric settings become read-only.'],
   [uiPrefs,'inputs','Show text boxes','toggle','Show a text box next to each slider for typing exact values (e.g. 0.075). Typed values are clamped to the allowed range.'],
   [view,'hud','Show HUD','toggle','Show or hide the speed / state readout.'],[view,'cam','Camera distance',5,16,.5,'How far the chase camera sits behind the car.']]};
-const tip=$('tip');let saveT=0;const persist=o=>{if(!canEdit())return;if(o===C){clearTimeout(saveT);saveT=setTimeout(()=>Sim.saveConfig(),150);cfgSoon();if(net.role==='host')updateLobby()}}; // host tweaks survive reloads (localStorage)
-function hover(el,txt){el.onmouseenter=()=>{const r=el.getBoundingClientRect(),m=$('m').getBoundingClientRect();tip.textContent=txt;
-  tip.style.display='block';tip.style.left=m.right+10+'px';tip.style.top=r.top+'px'};el.onmouseleave=()=>tip.style.display='none'}
-const fmt=(v,s)=>(+v).toFixed(s<1?(s<.1?2:1):0);
-function draw(){
-  const tabs=canEdit()?[...Object.keys(G),'KEYS']:['KEYS'];if(!tabs.includes(tab))tab=tabs[0]; // clients only ever see KEYS
-  $('tabs').style.display=tabs.length>1?'flex':'none';$('tabs').innerHTML='';for(const t of tabs){const b=document.createElement('button');b.className='tab'+(t===tab?' on':'');
-    b.textContent=t;b.onclick=()=>{tab=t;draw()};$('tabs').appendChild(b)}
-  const B=$('body');B.innerHTML='';tip.style.display='none';
-  if(tab==='KEYS'){for(const a in kb){const r=document.createElement('div');r.className='row top';r.innerHTML=`<span class=nm>${NAMES[a]}</span>`;
-    const b=document.createElement('button');b.className='kbtn'+(rb===a?' wait':'');b.textContent=rb===a?'PRESS A KEY':kb[a].join(' / ').replace(/Key|Arrow/g,'');
-    b.onclick=()=>{rb=a;draw()};r.appendChild(b);hover(r,'Click, then press the key you want. Saved on this device.');B.appendChild(r)}return}
-  const locked=!uiPrefs.sliders&&!uiPrefs.inputs;
-  if(locked&&G[tab].some(x=>x[3]!=='toggle'))B.appendChild(mkEl('div','lockmsg','Sliders and text boxes are both hidden, so numeric settings are read-only (locked). Turn either back on with the SLIDERS / TEXT BOXES buttons below, or in the VIEW tab.'));
-  for(const[o,k,n,a,b,s,d]of G[tab]){
-    const r=mkEl('div','row');hover(r,d||s);if(k==='regen'&&C.regenOff)r.style.opacity=.45;
-    if(a==='toggle'){r.className='row top';r.appendChild(mkEl('span','nm',n));hover(r,b);
-      const tg=mkEl('button','tg'+(o[k]?' on':''));
-      tg.onclick=()=>{o[k]=!o[k];tg.className='tg'+(o[k]?' on':'');persist(o);if(o===uiPrefs){saveUi();draw();return}if(k==='hud')$('h').style.display=o[k]?'block':'none';if(k==='regenOff')draw()};
-      r.appendChild(tg);B.appendChild(r);continue}
-    const top=mkEl('div','top'),val=mkEl('div','val');top.appendChild(mkEl('span','nm',n));top.appendChild(val);r.appendChild(top);
-    const unit=UNIT[k]||'',txt=v=>String(+(+v).toFixed(4));let sl=null,tx=null,ro=null;
-    const paint=()=>{if(sl){sl.value=o[k];sl.style.setProperty('--p',(o[k]-a)/(b-a)*100+'%')}if(tx)tx.value=txt(o[k]);if(ro)ro.textContent='🔒 '+txt(o[k])+unit};
-    // typed values keep their precision (0.075) and are clamped to [min,max]; slider / steppers snap to the step. Integer settings round.
-    const apply=(x,sv,exact)=>{x=+x;if(!isFinite(x))return false;let y=Math.min(b,Math.max(a,x));
-      y=exact&&!Number.isInteger(s)?+y.toFixed(4):Math.min(b,Math.max(a,+(Math.round(y/s)*s).toFixed(4)));o[k]=y;if(sv)persist(o);paint();return x<a||x>b};
-    if(locked){ro=mkEl('span','lk');val.appendChild(ro)} // both controls hidden: read-only value
-    else{const m=mkEl('button',null,'−'),p=mkEl('button',null,'+');m.onclick=()=>apply(o[k]-s,1);p.onclick=()=>apply(o[k]+s,1);val.appendChild(m);val.appendChild(p);
-      const ctl=mkEl('div','ctl');
-      if(uiPrefs.sliders){sl=mkEl('input');sl.type='range';sl.min=a;sl.max=b;sl.step=s;sl.oninput=()=>apply(sl.value,1);sl.onchange=()=>sl.blur();ctl.appendChild(sl)}
-      if(uiPrefs.inputs){tx=mkEl('input','num');tx.type='text';tx.inputMode='decimal';
-        tx.onchange=()=>{const x=parseFloat(String(tx.value).replace(',','.'));if(!isFinite(x)){paint();return}const cl=apply(x,1,true);paint();if(cl){tx.classList.add('clamped');setTimeout(()=>tx.classList.remove('clamped'),700)}};
-        tx.onkeydown=e=>{if(e.key==='Enter')tx.blur();else if(e.key==='Escape'){paint();tx.blur()}};tx.onfocus=()=>{if(tx.select)tx.select()};ctl.appendChild(tx)}
-      if(unit)ctl.appendChild(mkEl('span','unit',unit));r.appendChild(ctl)}
-    paint();B.appendChild(r)}
-  syncUi()}
-function syncUi(){$('uiS').className='chip'+(uiPrefs.sliders?' on':'');$('uiI').className='chip'+(uiPrefs.inputs?' on':'')}
-$('uiS').onclick=()=>{uiPrefs.sliders=!uiPrefs.sliders;saveUi();draw()};$('uiI').onclick=()=>{uiPrefs.inputs=!uiPrefs.inputs;saveUi();draw()}; // always reachable, even when both are off
-const canEdit=()=>mode==='offline'||net.role==='host'; // game rules / balance: host (or offline) only
-const applyPanel=()=>{const ce=canEdit(),sig=ce?'H':'C';
-  if(sig!==drawSig){drawSig=sig;$('mt').textContent=ce?'LOBBY SETTINGS':'CONTROLS';$('rst').style.display=ce?'':'none';$('open').textContent=ce?'SETTINGS · H':'CONTROLS · H';draw()}
-  $('m').style.display=panelOpen?'flex':'none';$('open').style.display=panelOpen?'none':'block';$('uip').style.display=ce?'flex':'none';tip.style.display='none'};
-const toggle=()=>{panelOpen=!panelOpen;applyPanel()}; // everyone may open it; clients only see KEYS
-$('cls').onclick=$('open').onclick=toggle;$('rst').onclick=()=>{Sim.resetConfig();draw();cfgSoon()};draw();applyPanel();
-// ---- world (compact arena, tight ramps, floating hex platforms) ----
-// 4-fold pinwheel: each ramp sits 21u behind its mid platform (clockwise tangent); high tier at center, 5 ramps total
-const RAMPS=[[0,0],[-21,24],[24,21],[21,-24],[-24,-21]].map(([x,z])=>({x,z,hw:5.5,h:3.5})),
-  PLATS=[{x:0,z:24,r:7,top:8.5,o:0},{x:24,z:0,r:7,top:8.5,o:1},{x:0,z:-24,r:7,top:8.5,o:0},{x:-24,z:0,r:7,top:8.5,o:1},{x:0,z:0,r:5,top:17.5,o:0,tier:'high'}];
-// 4-fold symmetric starting pads on a ring (x,z,yaw), all facing the center
-const PADS=Array.from({length:8},(_,k)=>{const a=k*Math.PI/4,rad=k%2?38.5:34,x=+(rad*Math.sin(a)).toFixed(2),z=+(-rad*Math.cos(a)).toFixed(2);return[x,z,Math.atan2(-x,-z)]}), // 8 symmetric pads facing the center
-  PADORDER=[0,4,2,6,1,5,3,7],COLORS=[0x3aa0ff,0xf2a33a,0xb26cf0,0x4cc46a,0xe5534b,0x2ee6c8,0xf06fc0,0xc8d34a],spec={i:0};
-const pad=(i,id,m,drive,decay)=>Sim.car(id,PADS[i][0],PADS[i][1],PADS[i][2],m,drive,decay);
-function buildWorld(roster,nBots=0){const w=Sim.create({radius:36,ramps:RAMPS,plats:PLATS}); // players spread to opposite pads first, then bots
-  roster.slice(0,8).forEach((r,i)=>{const c=pad(PADORDER[i],r.id,1);c.name=r.name;c.ci=i;w.cars.push(c)});
-  for(let j=0;j<nBots&&w.cars.length<8;j++){const i=w.cars.length,c=pad(PADORDER[i],'b'+(j+1),1);c.bot=true;c.name='BOT '+(j+1);c.ci=i;w.cars.push(c)}
-  return w}
-const mk=()=>buildWorld([{id:'p',name:myName()}],Math.max(0,C.maxPlayers-1)); // offline practice: you + bots up to Max players
-let w=mk();
-// ---- render ----
-const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setSize(innerWidth,innerHeight);document.body.appendChild(renderer.domElement);
-const sc=new THREE.Scene();sc.background=new THREE.Color(0x12151d);sc.fog=new THREE.Fog(0x12151d,50,200);
-const cam=new THREE.PerspectiveCamera(72,innerWidth/innerHeight,.1,400);
-addEventListener('resize',()=>{renderer.setSize(innerWidth,innerHeight);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()});
-sc.add(new THREE.AmbientLight(0xffffff,.65));const dl=new THREE.DirectionalLight(0xffffff,.7);dl.position.set(30,80,20);sc.add(dl);
-const mat=(c)=>new THREE.MeshPhongMaterial({color:c,flatShading:true,shininess:6,specular:0x111111,side:THREE.DoubleSide});
-const im=new THREE.InstancedMesh(new THREE.CylinderGeometry(Sim.S*.92,Sim.S*.92,.5,6),new THREE.MeshBasicMaterial(),w.list.length);
-im.frustumCulled=false;sc.add(im);
-const D=new THREE.Object3D(),col=new THREE.Color(),SH=[0x2b3550,0x313d5c,0x272f48],RED=0xd9473d;
-let anim=[],rise=[];
-const setM=(t,y,s=1)=>{D.position.set(t.x,y,t.z);D.scale.setScalar(s);D.updateMatrix();im.setMatrixAt(t.i,D.matrix)};
-const shade=t=>SH[((t.q-t.r)%3+3)%3],OIL=0x4a1f7a,OILOWN=0xe8c21a; // oil: dark purple for others' slicks (hidden once YOU hit it); YOUR OWN slick is yellow on YOUR screen only
-function paint(t){im.setColorAt(t.i,col.setHex(t.s===1?RED:t.o===net.myId?OILOWN:t.o&&!t.oh.includes(net.myId)?OIL:shade(t)))}
-function initTiles(){anim=[];rise=[];for(const t of w.list){t._h=false;setM(t,-.25);im.setColorAt(t.i,col.setHex(shade(t)))}
-  im.instanceMatrix.needsUpdate=im.instanceColor.needsUpdate=true}
-initTiles();let bnUntil=0,seenOver=false;
-const reset=()=>{Sim.resetRound(w);for(const c of w.cars){c.px=c.x;c.py=c.y;c.pz=c.z;c.pyaw=c.yaw}initTiles();seenOver=false;bnUntil=0;spec.i=0;
-  if(net.role==='host'){bcast({k:'reset'});net.d.ts.clear();net.d.os.clear();net.sendT=1}};
-const doReset=()=>{if(mode==='offline'||(mode==='host'&&net.role==='host'&&net.live))reset()}; // only the host (or offline) can start a new round
-$('nr').onclick=doReset;$('nr').onfocus=e=>e.target.blur();
-const rampMeshes=[];for(const r of RAMPS){const m=new THREE.Mesh(new THREE.ConeGeometry(r.hw*Math.SQRT2,r.h,4),mat(0xe39b2d));
-  m.rotation.y=Math.PI/4;m.position.set(r.x,r.h/2,r.z);sc.add(m);rampMeshes.push(m)}
-for(const p of w.plats){const m=new THREE.Mesh(new THREE.CylinderGeometry(p.r,p.r,p.th,6),mat(p.top>15?0xd4a24a:0x5a8f99));
-  m.position.set(p.x,p.top-p.th/2,p.z);m.rotation.y=p.o?Math.PI/2:0;sc.add(m)} // floating: nothing underneath
-// cars + deployable wings
-const ws=new THREE.Shape();ws.moveTo(0,.7);ws.lineTo(2.4,-.2);ws.lineTo(2.4,-.9);ws.lineTo(0,-.7);
-const wg=new THREE.ExtrudeGeometry(ws,{depth:.07,bevelEnabled:false});wg.rotateX(Math.PI/2);
-const aura=(r,c,o)=>{const m=new THREE.Mesh(new THREE.SphereGeometry(r,16,12),new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:o,depthWrite:false}));m.visible=false;return m};
-const mkCarMesh=c=>{const g=new THREE.Group(),i=new THREE.Group();
-  const bm=mat(c),km=mat(0xeef1f7),b=new THREE.Mesh(new THREE.BoxGeometry(1.8,.6,3.2),bm),k=new THREE.Mesh(new THREE.BoxGeometry(1.2,.5,1.4),km);
-  k.position.set(0,.5,-.2);i.add(b,k);
-  const wm=mat(0xeef1f7),wings=[1,-1].map(sd=>{const p=new THREE.Group();p.position.set(sd*.85,.35,.1);p.add(new THREE.Mesh(wg,wm));p.scale.x=.001;i.add(p);return p});
-  const gh=aura(2.3,0xcfe8ff,.3),sd=aura(2.5,0x4cc4ff,.25),sm=new THREE.Mesh(new THREE.BoxGeometry(2.1,.45,.5),mat(0xff7a1a));sm.position.set(0,.05,1.75);sm.visible=false;
-  g.add(i,gh,sd,sm);g.userData={i,wings,wk:0,sc:1,gh,sd,sm,mats:[bm,km,wm],gs:false};return g};
-const meshes={},tags={};
-function carMesh(c){let g=meshes[c.id];if(!g){g=mkCarMesh(COLORS[(c.ci||0)%8]);meshes[c.id]=g;sc.add(g)}return g}
-function clearCars(){for(const id in meshes){sc.remove(meshes[id]);delete meshes[id]}for(const id in tags){tags[id].remove&&tags[id].remove();delete tags[id]}$('tags').innerHTML=''}
-// power-up visuals
-// Item coins. One definition drives the 3D pickup AND the HUD icon, so colors and labels always match.
-const CC={boost:0x2ee6f0,smash:0xff5a1f,shield:0x9b5cf6,shock:0xffe135,collapse:0x8b1a1a,oil:0x26262b,ghost:0xd8f8f5,quantum:0xd946ef}; // coin colors
-const lite=(c,a)=>{const r=c>>16&255,g=c>>8&255,b=c&255,m=x=>Math.round(x+(255-x)*a);return m(r)<<16|m(g)<<8|m(b)};
-const EC={};for(const k in CC)EC[k]=k==='ghost'?0x58c9d1:lite(CC[k],k==='oil'?.55:.5); // raised emblem colors
-const hx=c=>'#'+c.toString(16).padStart(6,'0');
-const ITM={boost:'SPEED BOOST',smash:'POWER SMASH',shield:'ENERGY SHIELD',shock:'SHOCKWAVE',collapse:'HEX COLLAPSE',oil:'OIL SLICK',ghost:'GHOST PHASE',quantum:'QUANTUM SHIFT'};
-const arc=(cx,cy,r,a0,a1,n)=>Array.from({length:n+1},(_,i)=>{const a=(a0+(a1-a0)*i/n)*Math.PI/180;return[cx+Math.cos(a)*r,cy+Math.sin(a)*r]});
-const EMB={ // emblem primitives in coin units: p = closed outline polygon, r = ring, d = dot [x,y,radius]
- boost:[{p:[[.15,.6],[-.3,-.05],[-.02,-.05],[-.15,-.6],[.3,.08],[.03,.08]]}],                                   // lightning bolt
- smash:[{p:[[-.42,.52],[.42,.52],[.42,.14],[.08,.14],[.08,-.58],[-.08,-.58],[-.08,.14],[-.42,.14]]}],            // hammer
- shield:[{p:[[-.42,.5],[.42,.5],[.42,.08],[.3,-.18],[0,-.58],[-.3,-.18],[-.42,.08]]}],                          // shield
- shock:[{r:.58},{r:.34},{d:[0,0,.08]}],                                                                         // radial rings
- collapse:[{p:arc(0,0,.55,30,390,6).slice(0,6)}],                                                               // hexagon
- oil:[{p:[[0,.62],...arc(0,-.15,.38,20,-200,8)]}],                                                              // droplet
- ghost:[{p:[...arc(0,.12,.38,0,180,6),[-.38,-.5],[-.19,-.32],[0,-.5],[.19,-.32],[.38,-.5]]},{d:[-.14,.14,.06]},{d:[.14,.14,.06]}] // ghost
+
+// ------------------------------------------------------------ settings panel ---
+
+/** Tab order of the settings panel (most-used lobby settings first). */
+const TAB_ORDER = ['LOBBY', 'SHRINK', 'ITEMS', 'STACK', 'QUANTUM', 'NET', 'DRIVE', 'AIR', 'HIT', 'FLOOR', 'VIEW'];
+
+/** Tooltip bubble element. */
+const tip = $('tip');
+/** Debounce timer for saving host settings. */
+let saveT = 0;
+
+/**
+ * Called after a setting object changed. Host settings (the shared config) are saved to localStorage after a short
+ * debounce, broadcast to all clients, and the lobby capacity line is refreshed. Clients can never change game rules.
+ * @param {object} o - the settings object that changed (only the shared config `C` is persisted)
+ * @returns {void}
+ */
+function persist(o) {
+  if (!canEdit() || o !== C) return;
+  clearTimeout(saveT);
+  saveT = setTimeout(() => Sim.saveConfig(), 150);
+  cfgSoon();
+  if (net.role === 'host') updateLobby();
+}
+
+/**
+ * Shows a tooltip bubble (right of the panel) while the pointer is over an element.
+ * @param {HTMLElement} el - element to watch
+ * @param {string} txt - tooltip text
+ * @returns {void}
+ */
+function hover(el, txt) {
+  el.onmouseenter = () => {
+    const r = el.getBoundingClientRect(), m = $('m').getBoundingClientRect();
+    tip.textContent = txt;
+    tip.style.display = 'block';
+    tip.style.left = m.right + 10 + 'px';
+    tip.style.top = r.top + 'px';
+  };
+  el.onmouseleave = () => { tip.style.display = 'none'; };
+}
+
+/**
+ * Builds a toggle (on/off switch) row.
+ * @param {object} o - settings object holding the value
+ * @param {string} k - key in `o`
+ * @param {string} n - label
+ * @param {string} help - tooltip
+ * @returns {HTMLElement} the row
+ */
+function toggleRow(o, k, n, help) {
+  const r = mkEl('div', 'row top');
+  r.appendChild(mkEl('span', 'nm', n));
+  hover(r, help);
+  const tg = mkEl('button', 'tg' + (o[k] ? ' on' : ''));
+  tg.onclick = () => {
+    o[k] = !o[k];
+    tg.className = 'tg' + (o[k] ? ' on' : '');
+    persist(o);
+    if (o === uiPrefs) { saveUi(); draw(); return; }
+    if (k === 'hud') $('h').style.display = o[k] ? 'block' : 'none';
+    if (k === 'regenOff') draw();
+  };
+  r.appendChild(tg);
+  return r;
+}
+
+/**
+ * Builds a numeric setting row: a slider and a text box side by side (either can be hidden in the UI preferences;
+ * with both hidden the row is read-only). The slider/steppers snap to the step; typed values keep their precision
+ * (0.075) for fractional settings, round for integer settings, and are always clamped to [min, max].
+ * @param {object} o - settings object holding the value
+ * @param {string} k - key in `o`
+ * @param {string} n - label
+ * @param {number} a - minimum
+ * @param {number} b - maximum
+ * @param {number} s - slider step
+ * @param {string} help - tooltip
+ * @param {boolean} locked - true when both slider and text box are hidden
+ * @returns {HTMLElement} the row
+ */
+function numericRow(o, k, n, a, b, s, help, locked) {
+  const r = mkEl('div', 'row'), top = mkEl('div', 'top'), val = mkEl('div', 'val');
+  hover(r, help || s);
+  if (k === 'regen' && C.regenOff) r.style.opacity = 0.45;
+  top.appendChild(mkEl('span', 'nm', n)); top.appendChild(val); r.appendChild(top);
+  const unit = UNIT[k] || '', txt = v => String(+(+v).toFixed(4));
+  let sl = null, tx = null, ro = null;
+
+  /** Writes the current value into every visible control. */
+  const paint = () => {
+    if (sl) { sl.value = o[k]; sl.style.setProperty('--p', (o[k] - a) / (b - a) * 100 + '%'); }
+    if (tx) tx.value = txt(o[k]);
+    if (ro) ro.textContent = '🔒 ' + txt(o[k]) + unit;
+  };
+  /**
+   * Applies a new value (clamped) and optionally saves it.
+   * @param {number} x - requested value
+   * @param {boolean} save - persist + sync the change
+   * @param {boolean} [exact] - keep typed precision instead of snapping to the step
+   * @returns {boolean} true if the value had to be clamped
+   */
+  const apply = (x, save, exact) => {
+    x = +x;
+    if (!isFinite(x)) return false;
+    let y = Math.min(b, Math.max(a, x));
+    y = exact && !Number.isInteger(s) ? +y.toFixed(4) : Math.min(b, Math.max(a, +(Math.round(y / s) * s).toFixed(4)));
+    o[k] = y;
+    if (save) persist(o);
+    paint();
+    return x < a || x > b;
+  };
+
+  if (locked) { ro = mkEl('span', 'lk'); val.appendChild(ro); paint(); return r; }
+  const minus = mkEl('button', null, '−'), plus = mkEl('button', null, '+');
+  minus.onclick = () => apply(o[k] - s, true);
+  plus.onclick = () => apply(o[k] + s, true);
+  val.appendChild(minus); val.appendChild(plus);
+  const ctl = mkEl('div', 'ctl');
+  if (uiPrefs.sliders) {
+    sl = mkEl('input'); sl.type = 'range'; sl.min = a; sl.max = b; sl.step = s;
+    sl.oninput = () => apply(sl.value, true);
+    sl.onchange = () => sl.blur();
+    ctl.appendChild(sl);
+  }
+  if (uiPrefs.inputs) {
+    tx = mkEl('input', 'num'); tx.type = 'text'; tx.inputMode = 'decimal';
+    tx.onchange = () => {
+      const x = parseFloat(String(tx.value).replace(',', '.'));
+      if (!isFinite(x)) { paint(); return; } // not a number: revert
+      const clamped = apply(x, true, true);
+      paint();
+      if (clamped) { tx.classList.add('clamped'); setTimeout(() => tx.classList.remove('clamped'), 700); }
+    };
+    tx.onkeydown = e => { if (e.key === 'Enter') tx.blur(); else if (e.key === 'Escape') { paint(); tx.blur(); } };
+    tx.onfocus = () => { if (tx.select) tx.select(); };
+    ctl.appendChild(tx);
+  }
+  if (unit) ctl.appendChild(mkEl('span', 'unit', unit));
+  r.appendChild(ctl);
+  paint();
+  return r;
+}
+
+/**
+ * Builds the KEYS tab (one re-bind button per action).
+ * @param {HTMLElement} B - panel body to fill
+ * @returns {void}
+ */
+function keyRows(B) {
+  for (const a in kb) {
+    const r = mkEl('div', 'row top');
+    r.appendChild(mkEl('span', 'nm', NAMES[a]));
+    const b = mkEl('button', 'kbtn' + (rb === a ? ' wait' : ''));
+    b.textContent = rb === a ? 'PRESS A KEY' : kb[a].join(' / ').replace(/Key|Arrow/g, '');
+    b.onclick = () => { rb = a; draw(); };
+    r.appendChild(b);
+    hover(r, 'Click, then press the key you want. Saved on this device.');
+    B.appendChild(r);
+  }
+}
+
+/**
+ * Redraws the settings panel: tab strip (clients only get KEYS) and the rows of the active tab.
+ * @returns {void}
+ */
+function draw() {
+  const order = TAB_ORDER.filter(k => G[k]).concat(Object.keys(G).filter(k => !TAB_ORDER.includes(k)));
+  const tabs = canEdit() ? [...order, 'KEYS'] : ['KEYS'];
+  if (!tabs.includes(tab)) tab = tabs[0];
+  $('tabs').style.display = tabs.length > 1 ? 'flex' : 'none';
+  $('tabs').innerHTML = '';
+  for (const t of tabs) {
+    const b = mkEl('button', 'tab' + (t === tab ? ' on' : ''), t);
+    b.onclick = () => { tab = t; draw(); };
+    $('tabs').appendChild(b);
+  }
+  const B = $('body');
+  B.innerHTML = '';
+  tip.style.display = 'none';
+  if (tab === 'KEYS') { keyRows(B); syncUi(); return; }
+  const locked = !uiPrefs.sliders && !uiPrefs.inputs;
+  if (locked && G[tab].some(x => x[3] !== 'toggle')) {
+    B.appendChild(mkEl('div', 'lockmsg', 'Sliders and text boxes are both hidden, so numeric settings are read-only (locked). Turn either back on with the SLIDERS / TEXT BOXES buttons below, or in the VIEW tab.'));
+  }
+  for (const [o, k, n, a, b, s, d] of G[tab]) {
+    B.appendChild(a === 'toggle' ? toggleRow(o, k, n, b) : numericRow(o, k, n, a, b, s, d, locked));
+  }
+  syncUi();
+}
+
+/**
+ * Updates the footer SLIDERS / TEXT BOXES chips to match the UI preferences.
+ * @returns {void}
+ */
+function syncUi() {
+  $('uiS').className = 'chip' + (uiPrefs.sliders ? ' on' : '');
+  $('uiI').className = 'chip' + (uiPrefs.inputs ? ' on' : '');
+}
+$('uiS').onclick = () => { uiPrefs.sliders = !uiPrefs.sliders; saveUi(); draw(); }; // always reachable, even when both are off
+$('uiI').onclick = () => { uiPrefs.inputs = !uiPrefs.inputs; saveUi(); draw(); };
+
+/**
+ * Shows / hides / docks the settings panel. In the lobby screen it is DOCKED right next to the player list so the
+ * host sees every game rule immediately; during a match it is the floating panel opened with the settings button or H.
+ * Clients only ever get the KEYS tab (title CONTROLS).
+ * @returns {void}
+ */
+function applyPanel() {
+  const ce = canEdit(), sig = ce ? 'H' : 'C', docked = overlayOn(), m = $('m');
+  if (sig !== drawSig) {
+    drawSig = sig;
+    $('mt').textContent = ce ? 'GAME SETTINGS' : 'CONTROLS';
+    $('rst').style.display = ce ? '' : 'none';
+    $('open').textContent = ce ? 'SETTINGS · H' : 'CONTROLS · H';
+    draw();
+  }
+  if (docked !== dockedNow) { // move the same panel element between the lobby dock and the page
+    dockedNow = docked;
+    (docked ? $('dock') : document.body).appendChild(m);
+    m.className = docked ? 'docked' : '';
+  }
+  m.style.display = docked || panelOpen ? 'flex' : 'none';
+  $('open').style.display = docked || panelOpen ? 'none' : 'block';
+  $('cls').style.display = docked ? 'none' : '';
+  $('uip').style.display = ce ? 'flex' : 'none';
+  tip.style.display = 'none';
+}
+
+/**
+ * Opens / closes the floating panel (H key / button). The docked lobby panel is always open.
+ * @returns {void}
+ */
+function toggle() { panelOpen = !panelOpen; applyPanel(); }
+$('cls').onclick = $('open').onclick = toggle;
+$('rst').onclick = () => { Sim.resetConfig(); draw(); cfgSoon(); };
+
+// ------------------------------------------------------------------- world ---
+
+/** Ramps: 5 pinwheel launch pads (each sits 21 u behind its mid platform along the clockwise tangent, one at the center). */
+const RAMPS = [[0, 0], [-21, 24], [24, 21], [21, -24], [-24, -21]].map(([x, z]) => ({ x, z, hw: 5.5, h: 3.5 }));
+
+/** Floating hex platforms: 4 mid-tier (rotated 90 degrees each for exact 4-fold symmetry) and 1 high-tier at the center. */
+const PLATS = [
+  { x: 0, z: 24, r: 7, top: 8.5, o: 0 }, { x: 24, z: 0, r: 7, top: 8.5, o: 1 },
+  { x: 0, z: -24, r: 7, top: 8.5, o: 0 }, { x: -24, z: 0, r: 7, top: 8.5, o: 1 },
+  { x: 0, z: 0, r: 5, top: 17.5, o: 0, tier: 'high' }
+];
+
+/** 8 symmetric start pads [x, z, yaw] on a ring, all facing the arena center. */
+const PADS = Array.from({ length: 8 }, (_, k) => {
+  const a = k * Math.PI / 4, rad = k % 2 ? 38.5 : 34;
+  const x = +(rad * Math.sin(a)).toFixed(2), z = +(-rad * Math.cos(a)).toFixed(2);
+  return [x, z, Math.atan2(-x, -z)];
+});
+/** Order in which players / bots take pads (opposite pads first, then the cardinal ones, then the diagonals). */
+const PADORDER = [0, 4, 2, 6, 1, 5, 3, 7];
+/** Car colors by player index. */
+const COLORS = [0x3aa0ff, 0xf2a33a, 0xb26cf0, 0x4cc46a, 0xe5534b, 0x2ee6c8, 0xf06fc0, 0xc8d34a];
+/** Spectator state: which survivor is being watched. */
+const spec = { i: 0 };
+
+/**
+ * Creates a car on one of the 8 start pads.
+ * @param {number} i - pad index 0-7
+ * @param {string} id - car id
+ * @param {number} m - mass
+ * @param {boolean} [drive] - false = parked dummy
+ * @param {boolean} [decay] - false = never turns tiles red
+ * @returns {object} car
+ */
+const pad = (i, id, m, drive, decay) => Sim.car(id, PADS[i][0], PADS[i][1], PADS[i][2], m, drive, decay);
+
+/**
+ * Builds a fresh match world: human players first (spread to opposite pads), then bots.
+ * @param {Array<{id:string,name:string}>} roster - human players
+ * @param {number} [nBots] - AI bots to add (at most 8 cars in total)
+ * @returns {object} world
+ */
+function buildWorld(roster, nBots = 0) {
+  const world = Sim.create({ radius: 36, ramps: RAMPS, plats: PLATS });
+  roster.slice(0, 8).forEach((r, i) => {
+    const c = pad(PADORDER[i], r.id, 1);
+    c.name = r.name; c.ci = i;
+    world.cars.push(c);
+  });
+  for (let j = 0; j < nBots && world.cars.length < 8; j++) {
+    const i = world.cars.length, c = pad(PADORDER[i], 'b' + (j + 1), 1);
+    c.bot = true; c.name = 'BOT ' + (j + 1); c.ci = i;
+    world.cars.push(c);
+  }
+  return world;
+}
+
+/**
+ * Offline practice world: you plus bots up to Max players.
+ * @returns {object} world
+ */
+const mk = () => buildWorld([{ id: 'p', name: myName() }], Math.max(0, C.maxPlayers - 1));
+
+/** The current world (host: authoritative; client: mirror used for prediction + rendering). */
+let w = mk();
+
+// ---------------------------------------------------------------- renderer ---
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+const sc = new THREE.Scene();
+sc.background = new THREE.Color(0x12151d);
+sc.fog = new THREE.Fog(0x12151d, 50, 200);
+const cam = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, .1, 400);
+addEventListener('resize', () => {
+  renderer.setSize(innerWidth, innerHeight);
+  cam.aspect = innerWidth / innerHeight;
+  cam.updateProjectionMatrix();
+});
+sc.add(new THREE.AmbientLight(0xffffff, .65));
+const sun = new THREE.DirectionalLight(0xffffff, .7);
+sun.position.set(30, 80, 20);
+sc.add(sun);
+
+/**
+ * Flat-shaded, double-sided material used for cars, ramps and platforms.
+ * @param {number} c - color
+ * @returns {THREE.Material} material
+ */
+const mat = c => new THREE.MeshPhongMaterial({ color: c, flatShading: true, shininess: 6, specular: 0x111111, side: THREE.DoubleSide });
+
+// ------------------------------------------------------------- floor tiles ---
+
+/** One instanced hex mesh draws every floor tile. */
+const im = new THREE.InstancedMesh(new THREE.CylinderGeometry(Sim.S * .92, Sim.S * .92, .5, 6), new THREE.MeshBasicMaterial(), w.list.length);
+im.frustumCulled = false;
+sc.add(im);
+const D = new THREE.Object3D();          // scratch object for instance matrices
+const col = new THREE.Color();           // scratch color
+const SH = [0x2b3550, 0x313d5c, 0x272f48]; // three-tone checker
+const RED = 0xd9473d;                    // warning-red tile
+const OIL = 0x4a1f7a;                    // other players' oil: dark purple (hidden once YOU hit it)
+const OILOWN = 0xe8c21a;                 // YOUR OWN oil: yellow, on YOUR screen only
+let anim = [], rise = [];                // tiles currently falling / popping back up
+
+/**
+ * Positions / scales one instance of the floor mesh (used for falling and respawning tiles).
+ * @param {object} t - tile
+ * @param {number} y - height
+ * @param {number} [s] - scale (0 hides it)
+ * @returns {void}
+ */
+const setM = (t, y, s = 1) => {
+  D.position.set(t.x, y, t.z);
+  D.scale.setScalar(s);
+  D.updateMatrix();
+  im.setMatrixAt(t.i, D.matrix);
 };
-EMB.quantum=[{p:[[-.5,.5],[.5,.5],[.5,-.5],[-.5,-.5]]},{p:[[-.2,.2],[.2,.2],[.2,-.2],[-.2,-.2]]}]; // size shift: big square around a small one
-EMB.collapse=[{p:Array.from({length:6},(_,i)=>{const a=(30+60*i)*Math.PI/180;return[Math.cos(a)*.55,Math.sin(a)*.55]})}];
-const svgIcon=ty=>`<svg viewBox="-1 -1 2 2">${EMB[ty].map(e=>e.p?`<polygon points="${e.p.map(q=>q[0].toFixed(2)+','+(-q[1]).toFixed(2)).join(' ')}"/>`:e.r?`<circle r="${e.r}"/>`:`<circle cx="${e.d[0]}" cy="${-e.d[1]}" r="${e.d[2]}" style="fill:var(--e);stroke:none"/>`).join('')}</svg>`;
-const coinIcon=(ty,s)=>`<span class=ci style="--c:${hx(CC[ty])};--e:${hx(EC[ty])};width:${s}px;height:${s}px">${svgIcon(ty)}</span>`;
-function makeCoin(type){ // floating 3D coin: cylinder + rim + raised emblem on BOTH faces
-  const g=new THREE.Group(),T=.24,D=.08,gh=type==='ghost';
-  const bm=new THREE.MeshPhongMaterial({color:CC[type],shininess:90,specular:0x999999,transparent:gh,opacity:gh?.7:1,side:THREE.DoubleSide});
-  const em=new THREE.MeshPhongMaterial({color:EC[type],shininess:40,transparent:gh,opacity:gh?.92:1});
-  const body=new THREE.Mesh(new THREE.CylinderGeometry(.9,.9,T,36),bm);body.rotation.x=Math.PI/2;g.add(body);
-  g.add(new THREE.Mesh(new THREE.TorusGeometry(.9,.055,8,36),em));
-  const emb=new THREE.Group();
-  for(const e of EMB[type]){
-    if(e.p){const P=e.p;for(let i=0;i<P.length;i++){const a=P[i],b=P[(i+1)%P.length],dx=b[0]-a[0],dy=b[1]-a[1];
-      const m=new THREE.Mesh(new THREE.BoxGeometry(Math.hypot(dx,dy)+.07,.075,D),em);m.position.set((a[0]+b[0])/2,(a[1]+b[1])/2,0);m.rotation.z=Math.atan2(dy,dx);emb.add(m)}}
-    else if(e.r)emb.add(new THREE.Mesh(new THREE.TorusGeometry(e.r,.04,8,40),em));
-    else{const m=new THREE.Mesh(new THREE.CylinderGeometry(e.d[2],e.d[2],D,12),em);m.rotation.x=Math.PI/2;m.position.set(e.d[0],e.d[1],0);emb.add(m)}}
-  const bk=emb.clone();emb.position.z=T/2+D/2-.01;bk.position.z=-(T/2+D/2-.01);bk.rotation.y=Math.PI;g.add(emb,bk);return g}
-const itemMesh={},rings=[];
-function ring(x,z,R,c,d,y){const m=new THREE.Mesh(new THREE.RingGeometry(.92,1,48),new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:.6,side:THREE.DoubleSide,depthWrite:false}));
-  m.rotation.x=-Math.PI/2;m.position.set(x,(y||0)+.3,z);sc.add(m);rings.push({m,t0:performance.now(),d,R})}
-// ---- selftest ----
-const det=(()=>{const run=()=>{const w=mk();let s=12345;for(let i=0;i<1800;i++){s=(s*1664525+1013904223)>>>0;
-  Sim.step(w,{p:{steer:((s>>>8)%3)-1,jump:(s>>>4)%90===0}},DT)}return Sim.hash(w)};return run()===run()})();
-// ---- loop + multiplayer ----
-let acc=0,last=performance.now(),fps=60,sbHtml='',hudKey='',zoneFlash=0,lastIn='',lastInT=0;const tv=new THREE.Vector3();
-const me=()=>w.cars.find(c=>c.id===net.myId)||w.cars[0];
-const nameOf=id=>(w.cars.find(c=>c.id===id)||{}).name||id;
-const steerNow=()=>(held('right')?1:0)-(held('left')?1:0);
-const inter=()=>(mode==='host'||mode==='client')&&!net.live;   // post-match intermission: lobby again, same room
-const overlayOn=()=>mode==='lobby'||inter();
-const rosterOut=()=>net.roster.map(r=>({...r,sc:((net.live?w.scores:net.scores)||{})[r.id]||0}));
-function buildInputs(){const I={};I[net.myId]={steer:steerNow(),jump:jl,power:pl}; // fresh-press edges only
-  if(net.role==='host')for(const id in net.inp){const r=net.inp[id],e={steer:r.s};if(r.j>r.sj){e.jump=true;r.sj++}if(r.p>r.sp){e.power=true;r.sp++}I[id]=e}
-  return I}
-// ---- HOST: authoritative sim, broadcasts state ~25x/s ----
-function bcast(m){for(const id in net.conns){try{net.conns[id].send(m)}catch(e){}}}
-function cfgSoon(){if(net.role!=='host')return;clearTimeout(net.cfgT);net.cfgT=setTimeout(()=>bcast({k:'cfg',cfg:{...C}}),120)} // live settings changes reach clients too
-function netCollect(){const T=net.d; // remember which tiles / oil tiles / events changed since the last broadcast
-  for(const t of w.redLog)T.ts.add(t.i);for(const t of w.fallLog)T.ts.add(t.i);for(const t of w.regenLog)T.ts.add(t.i);
-  for(const t of w.oilLog)T.os.add(t.i);for(const t of w.oilClr)T.os.add(t.i);for(const t of w.oilHit)T.os.add(t.i);w.oilHit.length=0;
-  for(const e of w.events)T.ev.push(e)}
-const r2=v=>Math.round(v*100)/100;
-function snapshot(){const T=net.d,L=w.list;
-  const m={k:'s',t:+w.t.toFixed(3),
-    c:w.cars.map(c=>({i:c.id,x:r2(c.x),y:r2(c.y),z:r2(c.z),a:r2(c.yaw),r:r2(c.roll),vx:r2(c.vx),vz:r2(c.vz),st:c.st,al:c.alive?1:0,inv:c.inv,sm:r2(c.smashT),sh:c.shield,bo:r2(c.boostT),gh:r2(c.ghostT),oi:r2(c.oilT),sl:r2(c.slick),e:c.ev,g:c.gs,qk:c.qk,qT:r2(c.qT),sz:r2(c.sz),sT:r2(c.shieldT)})),
-    it:w.items.map(i=>({id:i.id,type:i.type,x:r2(i.x),y:r2(i.y),z:r2(i.z)})),rd:{ph:w.round.phase,wi:w.round.winner},sc:w.scores,
-    ts:[...T.ts].map(i=>{const t=L[i];return[i,t.s,+t.ft.toFixed(3),t.fs]}),os:[...T.os].map(i=>{const t=L[i];return[i,t.o,t.oh]}),ev:T.ev,zn:Sim.shrinkInfo(w),rg:w.ramps.map(r=>[r.gone?1:0,+r.ft.toFixed(3)])};
-  T.ts.clear();T.os.clear();T.ev=[];return m}
-// ---- CLIENT: dumb terminal. No physics: apply host packets, interpolate, send inputs ----
-function applySnap(m){const now=performance.now(),L=w.list,pose={};
-  for(const o of m.c){const c=w.cars.find(c=>c.id===o.i);if(!c)continue;
-    c.st=o.st;c.alive=!!o.al;c.inv=o.inv;c.smashT=o.sm;c.shield=o.sh;c.boostT=o.bo;c.ghostT=o.gh;c.oilT=o.oi;c.slick=o.sl;c.vx=o.vx;c.vz=o.vz;c.ev=o.e;c.gs=o.g;c.qk=o.qk;c.qT=o.qT;c.sz=o.sz;c.shieldT=o.sT;
-    pose[o.i]=[o.x,o.y,o.z,o.a,o.r]}
-  net.snaps.push({rt:now,t:m.t,c:pose});if(net.snaps.length>40)net.snaps.shift();
-  for(const [i,s,ft,fs] of m.ts){const t=L[i];if(!t)continue;const p=t.s;t.s=s;t.ft=ft;t.fs=fs;
-    if(s===1&&p!==1)w.redLog.push(t);else if(s===2&&p!==2)w.fallLog.push(t);else if(s===0&&p!==0)w.regenLog.push(t)}
-  for(const [i,o,oh] of m.os){const t=L[i];if(!t)continue;const had=!!t.o;t.o=o;t.oh=oh||[];
-    if(o){if(!had)w.oilList.push(t);w.oilLog.push(t)}else if(had){w.oilList=w.oilList.filter(x=>x!==t);w.oilClr.push(t)}}
-  w.items=m.it.map(i=>({...i,ti:-1}));w.round.phase=m.rd.ph;w.round.winner=m.rd.wi;w.scores=m.sc;w.zn=m.zn;(m.rg||[]).forEach((g,i)=>{if(w.ramps[i]){w.ramps[i].gone=!!g[0];w.ramps[i].ft=g[1]}});for(const e of m.ev)w.events.push(e)}
-function clientTick(now){const S=net.snaps;if(!S.length)return;const lt=S[S.length-1];w.t=lt.t+(now-lt.rt)/1000; // host clock, extrapolated
-  const rt=now-100;let a=S[0],b=S[0],f=0; // render 100 ms in the past, interpolating between host snapshots
-  for(let i=S.length-1;i>=0;i--){if(S[i].rt<=rt){a=S[i];b=S[i+1]||S[i];f=b===a?0:(rt-a.rt)/(b.rt-a.rt);break}a=b=S[i]}
-  for(const c of w.cars){const A=a.c[c.id];if(!A)continue;const B=b.c[c.id]||A;
-    c.x=A[0]+(B[0]-A[0])*f;c.y=A[1]+(B[1]-A[1])*f;c.z=A[2]+(B[2]-A[2])*f;c.yaw=A[3]+(B[3]-A[3])*f;c.roll=A[4]+(B[4]-A[4])*f;
-    c.px=c.x;c.py=c.y;c.pz=c.z;c.pyaw=c.yaw}}
-function sendInput(now){const s=steerNow(),k=s+','+jc+','+pc;
-  if(k!==lastIn||now-lastInT>100){lastIn=k;lastInT=now;try{net.hostConn.send({k:'in',s,j:jc,p:pc})}catch(e){}}}
-// ---- lobby / connection handling ----
-const msg=(s,err)=>{$('lmsg').textContent=s||'';$('lmsg').className=err?'err':''};
-const codeChars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-const genCode=()=>Array.from({length:4},()=>codeChars[Math.floor(Math.random()*codeChars.length)]).join('');
-const saveName=()=>{try{localStorage.pname=myName()}catch(e){}};
-try{$('pname').value=localStorage.pname||''}catch(e){}
-function refreshOverlay(){const on=overlayOn();$('lobby').style.display=on?'flex':'none';document.body.className=(on?'lobby ':'')+mode;applyPanel()}
-function setMode(m){mode=m;refreshOverlay()}
-function enterGame(m){clearCars();initTiles();spec.i=0;seenOver=false;bnUntil=0;net.snaps=[];setMode(m)}
-function updateLobby(){const ro=net.role==='host'?rosterOut():net.roster,inRoom=net.role!=='none';
-  $('plist').innerHTML=ro.map((r,i)=>`<div class=pl><i style="background:${hx(COLORS[i%8])}"></i>${esc(r.name)}${r.sc?' <b>'+r.sc+'</b>':''}${r.id==='p'?'<small>HOST</small>':r.id===net.myId?'<small>YOU</small>':''}</div>`).join('');
-  $('room').style.display=net.code&&inRoom?'block':'none';$('room').innerHTML=net.code&&inRoom?`ROOM ID<b>${net.code}</b>${net.role==='host'?'Friends enter this code to join':'Share this code so friends can join'}`:'';
-  $('cap').textContent=inRoom?`PLAYERS ${ro.length}/${C.maxPlayers}${C.fillBots&&net.role==='host'?' · empty slots filled with bots':''}`:'';
-  $('cols').style.display=inRoom?'none':'grid';
-  const mine=ro.find(x=>x.id===net.myId);if(inRoom&&mine&&$('pname').value!==mine.name&&document.activeElement!==$('pname'))$('pname').value=mine.name; // show the name the host actually accepted
-  $('startBtn').style.display=net.role==='host'&&!net.live&&(ro.length>=2||(C.fillBots&&C.maxPlayers>=2))?'block':'none'}
-function uniqueName(base,id){let n=base,i=2;while(net.roster.some(r=>r.id!==id&&r.name===n))n=cleanName(base.slice(0,11))+' '+i++;return n}
-let nameT=0;
-function pushName(){clearTimeout(nameT);const nm=myName();saveName();
-  if(net.live)return; // names only change in the lobby / intermission
-  if(net.role==='host'){const me0=net.roster.find(r=>r.id==='p');if(me0){me0.name=uniqueName(nm,'p');bcast({k:'roster',roster:rosterOut(),code:net.code});updateLobby()}}
-  else if(net.role==='client'&&net.hostConn){try{net.hostConn.send({k:'NAME_UPDATE',name:nm})}catch(e){}}}
-$('pname').oninput=()=>{clearTimeout(nameT);nameT=setTimeout(pushName,250)};$('pname').onchange=pushName;
-function leaveNet(){try{net.peer&&net.peer.destroy()}catch(e){}net.peer=null;net.hostConn=null;net.conns={};net.roster=[];net.role='none';net.live=false;net.code='';net.scores={};net.interAt=0;net.myId='p';net.inp={};net.cn=0;
-  $('hostBtn').disabled=$('joinBtn').disabled=false;updateLobby();applyPanel()}
-function hostGame(tries=0){
-  if(typeof Peer==='undefined'){msg('PeerJS failed to load - check your connection.');return}
-  saveName();$('hostBtn').disabled=$('joinBtn').disabled=true;msg('Creating room…');
-  const code=genCode(),peer=new Peer('rsr-'+code);net.peer=peer;
-  peer.on('open',()=>{net.role='host';net.code=code;net.myId='p';net.roster=[{id:'p',name:myName()}];net.live=false;net.scores={};panelOpen=true;msg('Room ready. Share the Room ID, then start when everyone has joined.');updateLobby();applyPanel()});
-  peer.on('error',e=>{if(e.type==='unavailable-id'&&tries<5){try{peer.destroy()}catch(_){}hostGame(tries+1);return}msg('Network error: '+e.type);leaveNet()});
-  peer.on('connection',hostAccept)}
-function hostAccept(conn){let id=null;
-  conn.on('data',d=>{if(!d||typeof d!=='object')return;
-    if(d.k==='hello'&&!id){
-      if(net.live||net.roster.length>=C.maxPlayers){const why=net.live?'Match in Progress':`Lobby Full (${net.roster.length}/${C.maxPlayers})`;try{conn.send({k:'reject',why})}catch(e){}setTimeout(()=>{try{conn.close()}catch(e){}},300);return}
-      id='c'+(++net.cn);const base=cleanName(d.name);let name=base,n=2;while(net.roster.some(r=>r.name===name))name=cleanName(base.slice(0,11))+' '+n++;
-      net.roster.push({id,name});net.conns[id]=conn;net.inp[id]={s:0,j:0,p:0,sj:0,sp:0};
-      conn.send({k:'welcome',id,cfg:{...C},roster:rosterOut(),code:net.code}); // one-time full config sync: the client now plays by the host's rules
-      bcast({k:'roster',roster:rosterOut(),code:net.code});updateLobby()}
-    else if(d.k==='NAME_UPDATE'&&id&&!net.live){const r=net.roster.find(x=>x.id===id);if(r){r.name=uniqueName(cleanName(d.name),id);bcast({k:'roster',roster:rosterOut(),code:net.code});updateLobby()}} // accept + rebroadcast so every lobby updates live
-    else if(d.k==='in'&&id&&net.inp[id]){const r=net.inp[id];r.s=Math.max(-1,Math.min(1,+d.s||0));r.j=Math.max(r.j,d.j|0);r.p=Math.max(r.p,d.p|0)}});
-  conn.on('close',()=>{if(!id)return;delete net.conns[id];delete net.inp[id];
-    if(net.live){const c=w.cars.find(c=>c.id===id);if(c){c.alive=false;c.vx=c.vy=c.vz=0}}
-    else{net.roster=net.roster.filter(r=>r.id!==id);bcast({k:'roster',roster:rosterOut(),code:net.code});updateLobby()}})}
-function startMatch(){
-  const canStart=net.roster.length>=2||(C.fillBots&&C.maxPlayers>=2);
-  if(net.role!=='host'||net.live||!canStart)return;
-  const nb=C.fillBots?Math.max(0,Math.min(8,C.maxPlayers)-net.roster.length):0;
-  for(const id in net.inp)net.inp[id]={s:0,j:0,p:0,sj:0,sp:0};
-  w=buildWorld(net.roster,nb);w.scores={...net.scores}; // brand-new arena + brand-new cars on clean pads for EVERYONE; scores carry over
-  net.live=true;net.interAt=0;jc=pc=0;jl=pl=false;net.sendT=1;net.d.ts.clear();net.d.os.clear();net.d.ev=[];
-  enterGame('host');msg('');bcast({k:'start',roster:rosterOut(),bots:nb,cfg:{...C}})}
-function enterIntermission(){net.live=false;net.interAt=0;net.scores={...w.scores};
-  net.roster=net.roster.filter(r=>r.id==='p'||net.conns[r.id]); // players who left during the round are dropped
-  bcast({k:'inter',roster:rosterOut(),code:net.code});msg('Round over. New players can join with the Room ID; the host starts the next match.');updateLobby();refreshOverlay()}
-function joinGame(){const code=$('joinCode').value.trim().toUpperCase();
-  if(code.length<4){msg('Enter the 4-letter Room ID.');return}
-  if(typeof Peer==='undefined'){msg('PeerJS failed to load - check your connection.');return}
-  saveName();$('hostBtn').disabled=$('joinBtn').disabled=true;msg('Connecting…');
-  const peer=new Peer();net.peer=peer;let done=false;
-  const fail=m=>{if(done)return;done=true;msg(m);leaveNet()};
-  const to=setTimeout(()=>fail('Room not found, or the host is unreachable.'),10000);
-  peer.on('error',e=>{clearTimeout(to);fail(e.type==='peer-unavailable'?'Room not found. Check the Room ID.':'Network error: '+e.type)});
-  peer.on('open',()=>{const conn=peer.connect('rsr-'+code,{serialization:'json',reliable:true});net.hostConn=conn;
-    conn.on('open',()=>{clearTimeout(to);done=true;net.role='client';conn.send({k:'hello',name:myName()});msg('Connected. Waiting for the host to start…');applyPanel()});
-    conn.on('data',clientData);conn.on('close',hostGone)})}
-function hostGone(){if(net.role!=='client')return;leaveNet();w=mk();clearCars();initTiles();setMode('lobby');msg('Host disconnected.')}
-function clientData(d){if(!d||typeof d!=='object')return;
-  if(d.k==='welcome'){net.myId=d.id;net.roster=d.roster;net.code=d.code;Object.assign(C,d.cfg);updateLobby()} // overwrite local settings with the host's
-  else if(d.k==='roster'){net.roster=d.roster;if(d.code)net.code=d.code;updateLobby()}
-  else if(d.k==='inter'){net.live=false;net.roster=d.roster;net.code=d.code;updateLobby();refreshOverlay();msg('Round over. Waiting for the host to start the next match…')}
-  else if(d.k==='cfg'){Object.assign(C,d.cfg);updateLobby()}
-  else if(d.k==='reject'){leaveNet();msg(d.why,true)}
-  else if(d.k==='start'){Object.assign(C,d.cfg);net.roster=d.roster;w=buildWorld(d.roster,d.bots|0);net.live=true;jc=pc=0;jl=pl=false;enterGame('client');msg('')}
-  else if(d.k==='reset'){Sim.resetRound(w);net.snaps=[];initTiles();spec.i=0;seenOver=false;bnUntil=0}
-  else if(d.k==='s'&&mode==='client'&&net.live)applySnap(d)}
-$('hostBtn').onclick=()=>hostGame();$('joinBtn').onclick=joinGame;$('startBtn').onclick=startMatch;
-$('joinCode').onkeydown=e=>{if(e.key==='Enter')joinGame()};
-$('practice').onclick=()=>{saveName();net.role='none';net.myId='p';w=mk();panelOpen=true;enterGame('offline')};
-// ---- frame ----
-function frame(now){const fd=Math.min((now-last)/1000,.1);last=now;fps+=(1/fd-fps)*.05;
-  if(mode==='offline'||(mode==='host'&&net.live)){acc+=fd;
-    while(acc>=DT){for(const c of w.cars){c.px=c.x;c.py=c.y;c.pz=c.z;c.pyaw=c.yaw}
-      Sim.step(w,buildInputs(),DT);jl=false;pl=false;acc-=DT}
-    if(mode==='host'){netCollect();net.sendT+=fd;if(net.sendT>=.04){net.sendT=0;bcast(snapshot())}}
-  }else{acc=0;jl=false;pl=false;if(mode==='client'&&net.live){clientTick(now);sendInput(now)}}
-  // when the winner banner has been shown, return everyone to the lobby (same room) for the next match
-  if(mode==='host'&&net.live&&w.round.phase==='over'){if(!net.interAt)net.interAt=now+4000;else if(now>=net.interAt)enterIntermission()}else net.interAt=0;
-  const a=acc/DT,L=(u,v)=>u+(v-u)*a;let ch=false;
-  for(const t of w.redLog){im.setColorAt(t.i,col.setHex(RED));ch=true}
-  for(const t of w.fallLog)anim.push(t);
-  for(const t of w.regenLog){im.setColorAt(t.i,col.setHex(shade(t)));setM(t,-3.25);rise.push({t,t0:w.t});ch=true}
-  w.redLog.length=w.fallLog.length=w.regenLog.length=0;
-  for(let k=anim.length-1;k>=0;k--){const t=anim[k],d=w.t-t.ft,y=-.25-20*(t.fs||1)*d*d;
-    if(t.s!==2)anim.splice(k,1);else if(y<-120){setM(t,-200,0);anim.splice(k,1)}else setM(t,y);ch=true}
-  for(const t of w.oilLog){t._h=t.oh.includes(net.myId);paint(t);ch=true}for(const t of w.oilClr){paint(t);ch=true}w.oilLog.length=w.oilClr.length=0;
-  for(const t of w.oilList){const h=t.oh.includes(net.myId);if(h!==t._h){t._h=h;paint(t);ch=true}}
-  for(let k=rise.length-1;k>=0;k--){const q=rise[k],p=(w.t-q.t0)/.35; // respawned tile pops back up into place
-    if(q.t.s===2||p>=1){if(q.t.s!==2)setM(q.t,-.25);rise.splice(k,1)}else setM(q.t,-.25-3*(1-p)*(1-p));ch=true}
-  if(ch){im.instanceMatrix.needsUpdate=true;if(im.instanceColor)im.instanceColor.needsUpdate=true}
-  w.ramps.forEach((rp,i)=>{const m=rampMeshes[i];if(!m)return;if(rp.gone){const d=Math.max(0,w.t-rp.ft),y=rp.h/2-20*d*d;m.position.y=y;m.visible=y>-120}else{m.position.y=rp.h/2;m.visible=true}}); // ramps drop with their floor (if enabled)
-  w.cars.forEach(c=>{const g=carMesh(c),u=g.userData;u.sc+=((c.sz||1)-u.sc)*(1-Math.exp(-14*fd));g.scale.setScalar(u.sc);g.visible=c.alive;g.position.set(L(c.px??c.x,c.x),L(c.py??c.y,c.y)+.4*u.sc,L(c.pz??c.z,c.z));
-    g.rotation.y=L(c.pyaw??c.yaw,c.yaw);u.i.rotation.z=-c.roll;
-    u.wk+=((c.st==='F'?1:0)-u.wk)*(1-Math.exp(-16*fd));const f=c.st==='F'?Math.sin(now*.012)*.08:0;
-    u.wings.forEach((p,j)=>{const s=j?-1:1;p.scale.x=s*Math.max(.001,u.wk);p.rotation.z=s*(f+.1*u.wk)});
-    const gt=c.ghostT>0;if(gt!==u.gs){u.gs=gt;u.mats.forEach(m=>{m.transparent=gt;m.opacity=gt?.35:1;m.depthWrite=!gt;m.needsUpdate=true})}
-    u.gh.visible=gt;u.sd.visible=c.shield>0;if(c.shield>0)u.sd.material.opacity=.12+.07*c.shield;u.sm.visible=c.smashT>0});
-  // camera: always the LOCAL player's car (host or client); spectates a survivor once eliminated
-  const p=me(),al=w.cars.map((c,i)=>i).filter(i=>w.cars[i].alive),cd=view.cam*Math.max(1,p.sz||1); // camera backs off when you are BIG
-  const ti=overlayOn()?-1:p.alive?w.cars.indexOf(p):al.length?al[((spec.i%al.length)+al.length)%al.length]:-1;
-  if(ti<0){const a2=now*.0003;cam.position.lerp(new THREE.Vector3(Math.cos(a2)*55,38,Math.sin(a2)*55),1-Math.exp(-3*fd));cam.lookAt(0,0,0)}
-  else{const g=carMesh(w.cars[ti]),yw=g.rotation.y,fx=Math.sin(yw),fz=Math.cos(yw),q=g.position,k=p.alive?1:1.7;
-    cam.position.lerp(new THREE.Vector3(q.x-fx*cd*k,q.y+cd*.55*k,q.z-fz*cd*k),1-Math.exp(-8*fd));cam.lookAt(q.x+fx*6,q.y+1,q.z+fz*6)}
-  if(cam.updateMatrixWorld)cam.updateMatrixWorld();
-  // floating nametags anchored above each other car
-  const W2=innerWidth/2,H2=innerHeight/2;
-  for(const c of w.cars){let tg=tags[c.id];
-    if(!tg){tg=document.createElement('div');tg.className='tag';tg.style.setProperty('--c',hx(COLORS[(c.ci||0)%8]));tg._ti=mkEl('div','ti');tg._tn=mkEl('div','tn');tg.appendChild(tg._ti);tg.appendChild(tg._tn);$('tags').appendChild(tg);tags[c.id]=tg}
-    if(tg._n!==c.name){tg._n=c.name;tg._tn.textContent=c.name}
-    const ik=C.showOppItems&&c.inv?c.inv.join():'';if(tg._k!==ik){tg._k=ik;tg._ti.innerHTML=ik?c.inv.map(ty=>coinIcon(ty,20)).join(''):''} // opponent's held power-ups, just above the name
-    let vis=!overlayOn()&&c.alive&&c.id!==p.id;
-    if(vis){const g=carMesh(c);tv.set(g.position.x,g.position.y+2.4*Math.max(1,g.userData.sc||1),g.position.z).project(cam);vis=tv.z<1&&tv.z>-1&&Math.abs(tv.x)<1.2&&Math.abs(tv.y)<1.2;
-      if(vis)tg.style.transform=`translate(${(tv.x*W2+W2).toFixed(0)}px,${(H2-tv.y*H2).toFixed(0)}px) translate(-50%,-100%)`}
-    tg.style.display=vis?'block':'none'}
-  // ---- power-ups: floating coins, effect events, inventory HUD ----
-  const live={};for(const it of w.items){live[it.id]=1;let m=itemMesh[it.id];
-    if(!m){m=makeCoin(it.type);sc.add(m);itemMesh[it.id]=m}
-    m.position.set(it.x,it.y+Math.sin(now*.003+it.id)*.2,it.z);m.rotation.y=now*.0016+it.id}
-  for(const id in itemMesh)if(!live[id]){sc.remove(itemMesh[id]);delete itemMesh[id]}
-  for(const e of w.events){const c=w.cars.find(c=>c.id===e.id);
-    if(e.k==='shock')ring(e.x,e.z,e.r,0x7fd8ff,.5,e.y);else if(e.k==='collapse')ring(e.x,e.z,e.rad||5,0x8b1a1a,.5,0);
-    else if(e.k==='shatter'&&c)ring(c.x,c.z,9,0xffb62e,.4,c.y);else if(e.k==='shield'&&c)ring(c.x,c.z,4,0x4cc4ff,.25,c.y);else if(e.k==='zone')zoneFlash=now+1800;else if(e.k==='quantum'&&c)ring(c.x,c.z,e.kind==='big'?10:5,e.kind==='big'?0xe5534b:0x2ee6f0,.5,c.y);else if(e.k==='shieldExpire'&&c)ring(c.x,c.z,5,0xe8f1ff,.4,c.y)}
-  w.events.length=0;
-  for(let k=rings.length-1;k>=0;k--){const r=rings[k],a2=(now-r.t0)/(r.d*1000);if(a2>=1){sc.remove(r.m);rings.splice(k,1)}else{r.m.scale.setScalar(Math.max(.01,a2*r.R));r.m.material.opacity=.6*(1-a2)}}
-  const pk=p,hk=JSON.stringify([pk.inv,Math.ceil(pk.smashT),pk.shield,pk.boostT>0,Math.ceil(pk.ghostT),Math.ceil(pk.oilT),pk.alive,pk.qk,Math.ceil(pk.qT||0),Math.ceil(pk.shieldT||0),C.shieldExpire]);
-  if(hk!==hudKey){hudKey=hk;let h='<div class=slots>';for(let k=0;k<3;k++){const ty=pk.inv[k];
-    h+=ty?`<div class="slot${k?'':' cur'}" style="--c:${hx(CC[ty])}">${coinIcon(ty,40)}<small>${ITM[ty]}</small>${k?'':'<em>'+kb.power[0].replace('Key','').toUpperCase()+'</em>'}</div>`:'<div class="slot empty"></div>'}
-    h+='</div><div class=chips>';if(pk.smashT>0)h+=`<span>${coinIcon('smash',22)}${Math.ceil(pk.smashT)}s</span>`;if(pk.shield>0)h+=`<span>${coinIcon('shield',22)}×${pk.shield}${C.shieldExpire&&pk.shieldT>0?' · '+fmtT(pk.shieldT):''}</span>`;
-    if(pk.boostT>0)h+=`<span>${coinIcon('boost',22)}BOOST</span>`;if(pk.ghostT>0)h+=`<span>${coinIcon('ghost',22)}${Math.ceil(pk.ghostT)}s</span>`;if(pk.oilT>0)h+=`<span>${coinIcon('oil',22)}${Math.ceil(pk.oilT)}s</span>`;
-    if(pk.qk)h+=`<span>${coinIcon('quantum',22)}${pk.qk==='big'?'BIG':'SMALL'} ${Math.ceil(pk.qT)}s</span>`;$('inv').innerHTML=h+'</div>'}
-  const fv=72+(pk.boostT>0?12:0);if(Math.abs(cam.fov-fv)>.05){cam.fov+=(fv-cam.fov)*(1-Math.exp(-8*fd));cam.updateProjectionMatrix()}
-  const rd=w.round;if(rd.phase==='over'&&!seenOver){seenOver=true;bnUntil=now+3500}if(rd.phase==='play')seenOver=false;
-  const bn=$('bn');if(now<bnUntil){bn.style.display='block';bn.innerHTML=rd.winner?`ROUND WINNER<small>${esc(nameOf(rd.winner))} · +1 point</small>`:'DRAW<small>no survivors</small>'}else bn.style.display='none';
-  const sp=$('sp');sp.style.display=p.alive||overlayOn()?'none':'block';sp.textContent=p.alive?'':`ELIMINATED · spectating${al.length&&ti>=0?' · '+w.cars[ti].name:''} · ${kb.left[0].replace('Key','')}/${kb.right[0].replace('Key','')} switch`;
-  const zi=mode==='client'?(w.zn||{next:-1,ring:36,min:1}):Sim.shrinkInfo(w),zel=$('zone');let zt='',hot=false;
-  if(!overlayOn()&&w.round.phase==='play'&&C.mapShrinkEnabled){
-    if(now<zoneFlash){zt='⚠ ZONE SHRINKING';hot=true}
-    else if(zi.next>=0){const sec=Math.max(0,Math.ceil(zi.next-w.t));zt=`ZONE SHRINKS IN ${sec}s · ${zi.ring-zi.min} RINGS LEFT`;hot=sec<=3}
-    else if(zi.ring<=zi.min)zt='ZONE AT MINIMUM'}
-  zel.style.display=zt?'block':'none';zel.textContent=zt;zel.className=hot?'hot':'';
-  const sh=w.cars.map(c=>`<span class="${c.id===net.myId?'you':''} ${c.alive?'':'out'}">${esc(c.name||c.id)}<b>${w.scores[c.id]||0}</b></span>`).join('');
-  if(sh!==sbHtml){sbHtml=sh;$('sb').innerHTML=sh}
-  $('h').textContent=`${p.alive?{G:'GROUND',J:'JUMP',F:'FLIGHT',D:'DROP',X:'FALLING',C:'COYOTE'}[p.st]:'ELIMINATED'} · ${Math.hypot(p.vx,p.vz).toFixed(0)} u/s · alt ${p.y.toFixed(1)}\n${fps.toFixed(0)} fps · ${mode==='client'?'CLIENT · ROOM '+net.code:mode==='host'?'HOST · ROOM '+net.code+' · '+net.roster.length+'/'+C.maxPlayers:'offline'}\njump: ${p.ev||'-'} · air ${p.gs}f\n${canEdit()?'R new round · H settings':'H controls · host sets the rules'}`;
-  $('h').style.display=view.hud?'block':'none';
-  renderer.render(sc,cam);requestAnimationFrame(frame)}
-updateLobby();setMode('lobby');requestAnimationFrame(frame);
+
+/**
+ * Base color of a tile (three-tone checker for readability).
+ * @param {object} t - tile
+ * @returns {number} color
+ */
+const shade = t => SH[((t.q - t.r) % 3 + 3) % 3];
+
+/**
+ * Recolors one tile: red while warning, YOUR oil yellow, other players' oil dark purple (hidden once you hit it),
+ * otherwise its normal shade.
+ * @param {object} t - tile
+ * @returns {void}
+ */
+function paint(t) {
+  const c = t.s === 1 ? RED : t.o === net.myId ? OILOWN : t.o && !t.oh.includes(net.myId) ? OIL : shade(t);
+  im.setColorAt(t.i, col.setHex(c));
+}
+
+/**
+ * Resets the whole floor mesh to the current world (all tiles up, normal colors).
+ * @returns {void}
+ */
+function initTiles() {
+  anim = []; rise = [];
+  for (const t of w.list) { t._h = false; setM(t, -.25); im.setColorAt(t.i, col.setHex(shade(t))); }
+  im.instanceMatrix.needsUpdate = im.instanceColor.needsUpdate = true;
+}
+initTiles();
+/** Round-banner timer and "round over already seen" flag. */
+let bnUntil = 0, seenOver = false;
+
+// ------------------------------------------------------ ramps and platforms ---
+
+/** One cone mesh per ramp (so a ramp can fall with its floor). */
+const rampMeshes = [];
+for (const r of RAMPS) {
+  const m = new THREE.Mesh(new THREE.ConeGeometry(r.hw * Math.SQRT2, r.h, 4), mat(0xe39b2d));
+  m.rotation.y = Math.PI / 4;
+  m.position.set(r.x, r.h / 2, r.z);
+  sc.add(m);
+  rampMeshes.push(m);
+}
+for (const p of w.plats) { // floating hexagons: nothing underneath
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(p.r, p.r, p.th, 6), mat(p.top > 15 ? 0xd4a24a : 0x5a8f99));
+  m.position.set(p.x, p.top - p.th / 2, p.z);
+  m.rotation.y = p.o ? Math.PI / 2 : 0;
+  sc.add(m);
+}
+
+// -------------------------------------------------------------------- cars ---
+
+/** Swept wing shape, extruded thin; mirrored for the left wing. */
+const wingShape = new THREE.Shape();
+wingShape.moveTo(0, .7); wingShape.lineTo(2.4, -.2); wingShape.lineTo(2.4, -.9); wingShape.lineTo(0, -.7);
+const wingGeo = new THREE.ExtrudeGeometry(wingShape, { depth: .07, bevelEnabled: false });
+wingGeo.rotateX(Math.PI / 2);
+
+/**
+ * Creates a translucent sphere used for the ghost / shield auras.
+ * @param {number} r - radius
+ * @param {number} c - color
+ * @param {number} o - opacity
+ * @returns {THREE.Mesh} hidden sphere
+ */
+const aura = (r, c, o) => {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: o, depthWrite: false }));
+  m.visible = false;
+  return m;
+};
+
+/**
+ * Builds one car: body, cabin, deployable wings, auras and the Power Smash bumper.
+ * @param {number} color - body color
+ * @returns {THREE.Group} car mesh group (its userData holds the animatable parts)
+ */
+const mkCarMesh = color => {
+  const g = new THREE.Group(), inner = new THREE.Group();
+  const bodyMat = mat(color), cabinMat = mat(0xeef1f7), wingMat = mat(0xeef1f7);
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.8, .6, 3.2), bodyMat);
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.2, .5, 1.4), cabinMat);
+  cabin.position.set(0, .5, -.2);
+  inner.add(body, cabin);
+  const wings = [1, -1].map(side => {
+    const p = new THREE.Group();
+    p.position.set(side * .85, .35, .1);
+    p.add(new THREE.Mesh(wingGeo, wingMat));
+    p.scale.x = .001; // retracted until flight
+    inner.add(p);
+    return p;
+  });
+  const ghost = aura(2.3, 0xcfe8ff, .3), shield = aura(2.5, 0x4cc4ff, .25);
+  const smash = new THREE.Mesh(new THREE.BoxGeometry(2.1, .45, .5), mat(0xff7a1a));
+  smash.position.set(0, .05, 1.75);
+  smash.visible = false;
+  g.add(inner, ghost, shield, smash);
+  g.userData = { i: inner, wings, wk: 0, sc: 1, gh: ghost, sd: shield, sm: smash, mats: [bodyMat, cabinMat, wingMat], gs: false };
+  return g;
+};
+
+/** Car meshes and nametag elements by car id. */
+const meshes = {}, tags = {};
+
+/**
+ * Gets (or lazily creates) the mesh of a car.
+ * @param {object} c - car
+ * @returns {THREE.Group} mesh
+ */
+function carMesh(c) {
+  let g = meshes[c.id];
+  if (!g) { g = mkCarMesh(COLORS[(c.ci || 0) % 8]); meshes[c.id] = g; sc.add(g); }
+  return g;
+}
+
+/**
+ * Removes all car meshes and nametags (called when a new world starts).
+ * @returns {void}
+ */
+function clearCars() {
+  for (const id in meshes) { sc.remove(meshes[id]); delete meshes[id]; }
+  for (const id in tags) { if (tags[id].remove) tags[id].remove(); delete tags[id]; }
+  $('tags').innerHTML = '';
+}
+
+// ----------------------------------------------------------- power-up coins ---
+// One definition drives the 3D pickup AND the HUD icon, so colors and labels always match.
+
+/** Coin color per item type. */
+const CC = { boost: 0x2ee6f0, smash: 0xff5a1f, shield: 0x9b5cf6, shock: 0xffe135, collapse: 0x8b1a1a, oil: 0x26262b, ghost: 0xd8f8f5, quantum: 0xd946ef };
+
+/**
+ * Lightens a color toward white.
+ * @param {number} c - 0xRRGGBB
+ * @param {number} a - amount 0..1
+ * @returns {number} lighter color
+ */
+const lite = (c, a) => {
+  /** Moves one 0-255 channel toward white. @param {number} x - channel value @returns {number} lightened channel */
+  const mix = x => Math.round(x + (255 - x) * a);
+  return mix(c >> 16 & 255) << 16 | mix(c >> 8 & 255) << 8 | mix(c & 255);
+};
+
+/** Raised emblem color per item type (a lighter tone of the coin so it stays subtle). */
+const EC = {};
+for (const k in CC) EC[k] = k === 'ghost' ? 0x58c9d1 : lite(CC[k], k === 'oil' ? .55 : .5);
+
+/**
+ * Formats a numeric color as a CSS hex string.
+ * @param {number} c - 0xRRGGBB
+ * @returns {string} '#rrggbb'
+ */
+const hx = c => '#' + c.toString(16).padStart(6, '0');
+
+/** Display names of the items (HUD labels). */
+const ITM = {
+  boost: 'SPEED BOOST', smash: 'POWER SMASH', shield: 'ENERGY SHIELD', shock: 'SHOCKWAVE',
+  collapse: 'HEX COLLAPSE', oil: 'OIL SLICK', ghost: 'GHOST PHASE', quantum: 'QUANTUM SHIFT'
+};
+
+/**
+ * Points along a circular arc (used to draw emblem outlines).
+ * @param {number} cx - center x
+ * @param {number} cy - center y
+ * @param {number} r - radius
+ * @param {number} a0 - start angle (degrees)
+ * @param {number} a1 - end angle (degrees)
+ * @param {number} n - number of segments
+ * @returns {number[][]} [x, y] points
+ */
+const arc = (cx, cy, r, a0, a1, n) => Array.from({ length: n + 1 }, (_, i) => {
+  const a = (a0 + (a1 - a0) * i / n) * Math.PI / 180;
+  return [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
+});
+
+/** Emblem primitives in coin units: p = closed outline polygon, r = ring, d = dot [x, y, radius]. */
+const EMB = {
+  boost: [{ p: [[.15, .6], [-.3, -.05], [-.02, -.05], [-.15, -.6], [.3, .08], [.03, .08]] }],                              // lightning bolt
+  smash: [{ p: [[-.42, .52], [.42, .52], [.42, .14], [.08, .14], [.08, -.58], [-.08, -.58], [-.08, .14], [-.42, .14]] }],  // hammer
+  shield: [{ p: [[-.42, .5], [.42, .5], [.42, .08], [.3, -.18], [0, -.58], [-.3, -.18], [-.42, .08]] }],                    // shield
+  shock: [{ r: .58 }, { r: .34 }, { d: [0, 0, .08] }],                                                                    // radial rings
+  collapse: [{ p: Array.from({ length: 6 }, (_, i) => { const a = (30 + 60 * i) * Math.PI / 180; return [Math.cos(a) * .55, Math.sin(a) * .55]; }) }], // hexagon
+  oil: [{ p: [[0, .62], ...arc(0, -.15, .38, 20, -200, 8)] }],                                                              // droplet
+  ghost: [{ p: [...arc(0, .12, .38, 0, 180, 6), [-.38, -.5], [-.19, -.32], [0, -.5], [.19, -.32], [.38, -.5]] }, { d: [-.14, .14, .06] }, { d: [.14, .14, .06] }], // ghost
+  quantum: [{ p: [[-.5, .5], [.5, .5], [.5, -.5], [-.5, -.5]] }, { p: [[-.2, .2], [.2, .2], [.2, -.2], [-.2, -.2]] }]       // big square around a small one
+};
+
+/**
+ * SVG version of an item emblem (HUD icon matching the 3D coin).
+ * @param {string} ty - item type
+ * @returns {string} SVG markup
+ */
+const svgIcon = ty => {
+  const parts = EMB[ty].map(e => e.p
+    ? `<polygon points="${e.p.map(q => q[0].toFixed(2) + ',' + (-q[1]).toFixed(2)).join(' ')}"/>`
+    : e.r ? `<circle r="${e.r}"/>`
+      : `<circle cx="${e.d[0]}" cy="${-e.d[1]}" r="${e.d[2]}" style="fill:var(--e);stroke:none"/>`);
+  return `<svg viewBox="-1 -1 2 2">${parts.join('')}</svg>`;
+};
+
+/**
+ * HUD coin icon (same colors + emblem as the world coin).
+ * @param {string} ty - item type
+ * @param {number} s - size in px
+ * @returns {string} HTML
+ */
+const coinIcon = (ty, s) => `<span class=ci style="--c:${hx(CC[ty])};--e:${hx(EC[ty])};width:${s}px;height:${s}px">${svgIcon(ty)}</span>`;
+
+/**
+ * Builds the floating 3D coin for an item: cylinder + rim + a raised emblem on BOTH faces (mirrored on the back).
+ * @param {string} type - item type
+ * @returns {THREE.Group} coin
+ */
+function makeCoin(type) {
+  const g = new THREE.Group(), T = .24, DEPTH = .08, ghost = type === 'ghost';
+  const bodyMat = new THREE.MeshPhongMaterial({ color: CC[type], shininess: 90, specular: 0x999999, transparent: ghost, opacity: ghost ? .7 : 1, side: THREE.DoubleSide });
+  const embMat = new THREE.MeshPhongMaterial({ color: EC[type], shininess: 40, transparent: ghost, opacity: ghost ? .92 : 1 });
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(.9, .9, T, 36), bodyMat);
+  body.rotation.x = Math.PI / 2;
+  g.add(body);
+  g.add(new THREE.Mesh(new THREE.TorusGeometry(.9, .055, 8, 36), embMat));
+  const emb = new THREE.Group();
+  for (const e of EMB[type]) {
+    if (e.p) { // outline polygon as thin boxes along each edge
+      for (let i = 0; i < e.p.length; i++) {
+        const a = e.p[i], b = e.p[(i + 1) % e.p.length], dx = b[0] - a[0], dy = b[1] - a[1];
+        const m = new THREE.Mesh(new THREE.BoxGeometry(Math.hypot(dx, dy) + .07, .075, DEPTH), embMat);
+        m.position.set((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, 0);
+        m.rotation.z = Math.atan2(dy, dx);
+        emb.add(m);
+      }
+    } else if (e.r) emb.add(new THREE.Mesh(new THREE.TorusGeometry(e.r, .04, 8, 40), embMat));
+    else {
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(e.d[2], e.d[2], DEPTH, 12), embMat);
+      m.rotation.x = Math.PI / 2;
+      m.position.set(e.d[0], e.d[1], 0);
+      emb.add(m);
+    }
+  }
+  const back = emb.clone();
+  emb.position.z = T / 2 + DEPTH / 2 - .01;
+  back.position.z = -(T / 2 + DEPTH / 2 - .01);
+  back.rotation.y = Math.PI;
+  g.add(emb, back);
+  return g;
+}
+
+/** World coin meshes by item id, and the expanding effect rings. */
+const itemMesh = {}, rings = [];
+
+/**
+ * Spawns an expanding, fading ring on the floor (shockwave, collapse, shield, quantum effects).
+ * @param {number} x - center x
+ * @param {number} z - center z
+ * @param {number} R - final radius
+ * @param {number} c - color
+ * @param {number} d - duration (s)
+ * @param {number} y - height
+ * @returns {void}
+ */
+function ring(x, z, R, c, d, y) {
+  const m = new THREE.Mesh(new THREE.RingGeometry(.92, 1, 48), new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: .6, side: THREE.DoubleSide, depthWrite: false }));
+  m.rotation.x = -Math.PI / 2;
+  m.position.set(x, (y || 0) + .3, z);
+  sc.add(m);
+  rings.push({ m, t0: performance.now(), d, R });
+}
+
+// ------------------------------------------------------------- round reset ---
+
+/**
+ * Host / offline round reset: restores tiles and cars, clears banners, and tells the clients.
+ * @returns {void}
+ */
+function reset() {
+  Sim.resetRound(w);
+  for (const c of w.cars) { c.px = c.x; c.py = c.y; c.pz = c.z; c.pyaw = c.yaw; }
+  initTiles(); seenOver = false; bnUntil = 0; spec.i = 0;
+  if (net.role === 'host') { ctlAll({ k: 'reset' }); net.d.ts.clear(); net.d.os.clear(); net.sendT = 1; }
+}
+
+/**
+ * New-round button / R key: only the host (during a live round) or offline practice may reset.
+ * @returns {void}
+ */
+function doReset() { if (mode === 'offline' || (mode === 'host' && net.role === 'host' && net.live)) reset(); }
+$('nr').onclick = doReset;
+$('nr').onfocus = e => e.target.blur();
+
+// ------------------------------------------------------------------ lookups ---
+
+/**
+ * The local player's car (falls back to the first car in the lobby preview).
+ * @returns {object} car object
+ */
+function me() { return w.cars.find(c => c.id === net.myId) || w.cars[0]; }
+
+/**
+ * Finds a car by id.
+ * @param {string} id - car id
+ * @returns {object|undefined} the car
+ */
+const carById = id => w.cars.find(c => c.id === id);
+
+/**
+ * Display name of a car id.
+ * @param {string} id - car id
+ * @returns {string} name (or the id itself)
+ */
+const nameOf = id => (carById(id) || {}).name || id;
+
+/**
+ * Current steering axis from the held keys.
+ * @returns {number} -1 (left) .. +1 (right)
+ */
+const steerNow = () => (held('right') ? 1 : 0) - (held('left') ? 1 : 0);
+
+/**
+ * Lobby roster with each player's cumulative score attached (used for UI + network).
+ * @returns {Array<{id:string,name:string,sc:number}>} roster copy
+ */
+function rosterOut() {
+  const sc = (net.live ? w.scores : net.scores) || {};
+  return net.roster.map(r => ({ ...r, sc: sc[r.id] || 0 }));
+}
+
+// ---------------------------------------------------------------- transport ---
+
+/**
+ * Sends a message, ignoring closed / broken connections.
+ * @param {object|null} conn - PeerJS data connection
+ * @param {object} msg - JSON message
+ * @returns {void}
+ */
+function safeSend(conn, msg) { try { if (conn) conn.send(msg); } catch (e) { /* connection gone */ } }
+
+/**
+ * Host: reliable message to every client.
+ * @param {object} msg - JSON message
+ * @returns {void}
+ */
+function ctlAll(msg) { for (const id in net.conns) safeSend(net.conns[id], msg); }
+
+/**
+ * Host: unreliable message to one client (falls back to the reliable channel if the game channel is not up).
+ * @param {string} id - client id
+ * @param {object} msg - JSON message
+ * @returns {void}
+ */
+function gameSend(id, msg) { safeSend(net.gconns[id] || net.conns[id], msg); }
+
+/**
+ * Client: unreliable message to the host (falls back to the reliable channel).
+ * @param {object} msg - JSON message
+ * @returns {void}
+ */
+function toHost(msg) { safeSend(net.gameConn || net.hostConn, msg); }
+
+// ---------------------------------------------------------------- host side ---
+
+/**
+ * Host: broadcasts the current settings to all clients shortly after a change (debounced).
+ * @returns {void}
+ */
+function cfgSoon() {
+  if (net.role !== 'host') return;
+  clearTimeout(net.cfgT);
+  net.cfgT = setTimeout(() => ctlAll({ k: 'cfg', cfg: { ...C } }), 120);
+}
+
+/**
+ * Host / offline: builds this tick's input for every player. Offline uses the keys directly; the host routes ALL
+ * players (itself included) through the same jitter buffer so nobody gets a buffering advantage.
+ * @returns {Object<string,{steer:number,jump:boolean,power:boolean}>} input per car id
+ */
+function buildInputs() {
+  const mine = { steer: steerNow(), jump: jl, power: pl };
+  if (net.role !== 'host') return { [net.myId]: mine };
+  const hq = net.cq[net.myId] || (net.cq[net.myId] = Sim.createCmdQueue());
+  Sim.cmdPush(hq, [{ seq: ++net.hseq, s: mine.steer, j: mine.jump, p: mine.power }]);
+  const I = {};
+  for (const id in net.cq) I[id] = Sim.cmdPop(net.cq[id], C.netInputDelay);
+  return I;
+}
+
+/**
+ * Host: remembers which tiles / oil tiles / events changed since the last broadcast (the renderer clears the sim logs).
+ * @returns {void}
+ */
+function netCollect() {
+  const T = net.d;
+  for (const t of w.redLog) T.ts.add(t.i);
+  for (const t of w.fallLog) T.ts.add(t.i);
+  for (const t of w.regenLog) T.ts.add(t.i);
+  for (const t of w.oilLog) T.os.add(t.i);
+  for (const t of w.oilClr) T.os.add(t.i);
+  for (const t of w.oilHit) T.os.add(t.i);
+  w.oilHit.length = 0;
+  for (const e of w.events) T.ev.push(e);
+}
+
+/**
+ * Rounds a number to 2 decimals (keeps packets small).
+ * @param {number} v - value
+ * @returns {number} rounded value
+ */
+const r2 = v => Math.round(v * 100) / 100;
+
+/**
+ * Compact description of an OTHER player's car: pose, velocity and what is visible about it.
+ * @param {object} c - car
+ * @returns {object} remote car record
+ */
+function carRemote(c) {
+  return { i: c.id, x: r2(c.x), y: r2(c.y), z: r2(c.z), a: r2(c.yaw), r: r2(c.roll), vx: r2(c.vx), vy: r2(c.vy), vz: r2(c.vz),
+    st: c.st, al: c.alive ? 1 : 0, inv: c.inv, sm: r2(c.smashT), sh: c.shield, gh: r2(c.ghostT), qk: c.qk, sz: r2(c.sz) };
+}
+
+/**
+ * FULL authoritative state of a car: everything the client needs to continue simulating it (prediction + HUD).
+ * @param {object} c - car
+ * @returns {object} full car record
+ */
+function carFull(c) {
+  return { ...carRemote(c), bf: c.buf, gs: c.gs, rs: r2(c.rise), rt: r2(c.rollT), rd: c.rollDir, bo: r2(c.boostT), oi: r2(c.oilT),
+    sl: r2(c.slick), sT: r2(c.shieldT), gc: r2(c.ghostCd), qT: r2(c.qT), e: c.ev };
+}
+
+/**
+ * Host: sends every client a state snapshot on the unreliable game channel (self-contained, newest wins) and the
+ * tile / oil / event changes on the reliable channel. Each client's snapshot also carries its own full car state and
+ * the sequence number of the last input command the host executed for it (`k`).
+ * @returns {void}
+ */
+function broadcastState() {
+  const T = net.d, L = w.list;
+  const common = {
+    k: 's', t: +w.t.toFixed(3), c: w.cars.map(carRemote),
+    it: w.items.map(i => ({ id: i.id, type: i.type, x: r2(i.x), y: r2(i.y), z: r2(i.z) })),
+    rd: { ph: w.round.phase, wi: w.round.winner }, sc: w.scores, zn: Sim.shrinkInfo(w),
+    rg: w.ramps.map(r => [r.gone ? 1 : 0, +r.ft.toFixed(3)])
+  };
+  for (const id in net.conns) {
+    const car = carById(id), cq = net.cq[id];
+    gameSend(id, car ? { ...common, me: { ...carFull(car), k: cq ? cq.ack : 0 } } : common);
+  }
+  if (T.ts.size || T.os.size || T.ev.length) { // reliable deltas
+    ctlAll({
+      k: 'd', t: common.t,
+      ts: [...T.ts].map(i => [i, L[i].s, +L[i].ft.toFixed(3), L[i].fs]),
+      os: [...T.os].map(i => [i, L[i].o, L[i].oh]),
+      ev: T.ev
+    });
+    T.ts.clear(); T.os.clear(); T.ev = [];
+  }
+}
+
+// -------------------------------------------------------------- client side ---
+
+/**
+ * Client: applies the parts of a car record that every viewer sees (not its position, which is interpolated).
+ * @param {object} c - local mirror of the car
+ * @param {object} o - remote car record
+ * @returns {void}
+ */
+function applyRemote(c, o) {
+  c.st = o.st; c.alive = !!o.al; c.inv = o.inv; c.smashT = o.sm; c.shield = o.sh; c.ghostT = o.gh; c.qk = o.qk; c.sz = o.sz;
+  c.vx = o.vx; c.vy = o.vy; c.vz = o.vz;
+}
+
+/**
+ * Client: overwrites the local car with the host's authoritative state (start of a reconciliation).
+ * @param {object} c - the local player's car
+ * @param {object} o - full car record from the host
+ * @returns {void}
+ */
+function applyOwn(c, o) {
+  applyRemote(c, o);
+  c.x = o.x; c.y = o.y; c.z = o.z; c.yaw = o.a; c.roll = o.r;
+  c.buf = o.bf; c.gs = o.gs; c.rise = o.rs; c.rollT = o.rt; c.rollDir = o.rd;
+  c.boostT = o.bo; c.oilT = o.oi; c.slick = o.sl; c.shieldT = o.sT; c.ghostCd = o.gc; c.qT = o.qT; c.ev = o.e;
+}
+
+/**
+ * Client: updates the estimate of the host's clock and the arrival jitter from a snapshot.
+ * The offset follows the FASTEST packets (so it tracks the true clock), decaying slowly toward the average.
+ * @param {number} hostT - host simulation time stamped on the snapshot (s)
+ * @param {number} nowMs - local arrival time (ms)
+ * @returns {void}
+ */
+function updateClock(hostT, nowMs) {
+  const k = net.clk, sample = hostT - nowMs / 1000;
+  if (k.off === null || sample > k.off) k.off = sample; else k.off += (sample - k.off) * 0.02;
+  if (k.lastArr) k.jit += (Math.abs((nowMs - k.lastArr) / 1000 - (hostT - k.lastT)) - k.jit) * 0.1;
+  k.lastArr = nowMs; k.lastT = hostT;
+}
+
+/**
+ * Remote-entity interpolation delay: manual (netInterpDelay ms) or automatic = 1.5 snapshot intervals + 3x jitter.
+ * @returns {number} delay in seconds
+ */
+function interpDelay() {
+  if (C.netInterpDelay > 0) return C.netInterpDelay / 1000;
+  return Math.min(0.3, Math.max(0.06, 1.5 / Math.max(10, C.netSnapshotRate) + 3 * net.clk.jit));
+}
+
+/**
+ * Client: handles a state snapshot from the host (unreliable channel; stale / duplicate ones are dropped).
+ * Remote cars go into the interpolation buffer, shared state is applied, and the local car is reconciled.
+ * @param {object} m - snapshot message
+ * @returns {void}
+ */
+function onSnapshot(m) {
+  if (!(m.t > net.lastT)) return;
+  net.lastT = m.t;
+  updateClock(m.t, performance.now());
+  const pose = {};
+  for (const o of m.c) {
+    const c = carById(o.i);
+    if (!c) continue;
+    applyRemote(c, o);
+    pose[o.i] = [o.x, o.y, o.z, o.a, o.r, o.vx, o.vy, o.vz];
+  }
+  net.snaps.push({ t: m.t, c: pose });
+  if (net.snaps.length > 60) net.snaps.shift();
+  w.items = m.it.map(i => ({ ...i, ti: -1 }));
+  w.round.phase = m.rd.ph; w.round.winner = m.rd.wi; w.scores = m.sc; w.zn = m.zn;
+  (m.rg || []).forEach((g, i) => { if (w.ramps[i]) { w.ramps[i].gone = !!g[0]; w.ramps[i].ft = g[1]; } });
+  if (m.me) reconcile(m.me);
+}
+
+/**
+ * Client: handles reliable tile / oil / event changes from the host.
+ * @param {object} d - delta message
+ * @returns {void}
+ */
+function onDelta(d) {
+  const L = w.list;
+  for (const [i, s, ft, fs] of d.ts) {
+    const t = L[i]; if (!t) continue;
+    const prev = t.s; t.s = s; t.ft = ft; t.fs = fs;
+    if (s === 1 && prev !== 1) w.redLog.push(t);
+    else if (s === 2 && prev !== 2) w.fallLog.push(t);
+    else if (s === 0 && prev !== 0) w.regenLog.push(t);
+  }
+  for (const [i, o, oh] of d.os) {
+    const t = L[i]; if (!t) continue;
+    const had = !!t.o;
+    t.o = o; t.oh = oh || [];
+    if (o) { if (!had) w.oilList.push(t); w.oilLog.push(t); }
+    else if (had) { w.oilList = w.oilList.filter(x => x !== t); w.oilClr.push(t); }
+  }
+  for (const e of d.ev) w.events.push(e);
+}
+
+/**
+ * Client: server reconciliation. Takes the host's state for our car as of the last command it executed (`o.k`),
+ * then re-simulates every command the host has not seen yet. Small differences are hidden with a fading visual
+ * offset; large ones (we were hit, teleported) snap.
+ * @param {object} o - our full authoritative car record (with ack `k`)
+ * @returns {void}
+ */
+function reconcile(o) {
+  const c = me(), P = net.pred;
+  if (!c) return;
+  P.pending = P.pending.filter(k => k.seq > o.k);
+  if (!C.netPrediction) { applyOwn(c, o); c.alive = !!o.al; return; } // pure dumb-terminal mode
+  const ox = c.x, oy = c.y, oz = c.z;
+  applyOwn(c, o);
+  if (c.alive) for (const k of P.pending) Sim.predictStep(w, c, { steer: k.s, jump: k.j, power: k.p }, DT);
+  const dx = ox - c.x, dy = oy - c.y, dz = oz - c.z;
+  P.err = Math.hypot(dx, dy, dz); P.maxErr = Math.max(P.maxErr || 0, P.err); // diagnostics: size of the last / worst correction
+  if (P.err > 6) { P.corr.x = P.corr.y = P.corr.z = 0; }
+  else { P.corr.x += dx; P.corr.y += dy; P.corr.z += dz; }
+  c.px = c.x; c.py = c.y; c.pz = c.z; c.pyaw = c.yaw;
+}
+
+/**
+ * Client: one fixed 60 Hz tick of local play. Records the input command (sequence numbered), predicts the local car
+ * with the shared simulation code, and sends the most recent unacknowledged commands to the host (redundancy covers
+ * packet loss on the unreliable channel).
+ * @returns {void}
+ */
+function predictTick() {
+  const c = me(), P = net.pred;
+  const cmd = { seq: ++P.seq, s: steerNow(), j: jl, p: pl };
+  jl = false; pl = false;
+  P.pending.push(cmd);
+  if (P.pending.length > 120) P.pending.shift();
+  if (c && c.alive && C.netPrediction) {
+    c.px = c.x; c.py = c.y; c.pz = c.z; c.pyaw = c.yaw;
+    Sim.predictStep(w, c, { steer: cmd.s, jump: cmd.j, power: cmd.p }, DT);
+  }
+  toHost({ k: 'in', c: P.pending.slice(-8) });
+}
+
+/**
+ * Client: interpolates every REMOTE car between host snapshots on the host's clock (rendered a little in the past so
+ * there is always a newer snapshot to move toward); briefly extrapolates with velocity if the buffer runs dry.
+ * Also advances the local copy of the host clock used for tile / ramp animations.
+ * @param {number} now - rAF timestamp (ms)
+ * @returns {void}
+ */
+function interpolateRemotes(now) {
+  const S = net.snaps, k = net.clk;
+  if (!S.length || k.off === null) return;
+  w.t = k.off + now / 1000;
+  const rt = w.t - interpDelay();
+  let i = S.length - 1;
+  while (i >= 0 && S[i].t > rt) i--;
+  const a = S[Math.max(i, 0)], b = i >= 0 && i < S.length - 1 ? S[i + 1] : a;
+  const f = b !== a ? (rt - a.t) / (b.t - a.t) : 0, ex = i === S.length - 1 ? Math.min(Math.max(rt - a.t, 0), 0.1) : 0;
+  for (const c of w.cars) {
+    if (c.id === net.myId && C.netPrediction) continue; // the local car is predicted, not interpolated
+    const A = a.c[c.id]; if (!A) continue;
+    const B = b.c[c.id] || A;
+    c.x = A[0] + (B[0] - A[0]) * f + A[5] * ex; c.y = A[1] + (B[1] - A[1]) * f + A[6] * ex; c.z = A[2] + (B[2] - A[2]) * f + A[7] * ex;
+    c.yaw = A[3] + (B[3] - A[3]) * f; c.roll = A[4] + (B[4] - A[4]) * f;
+    c.px = c.x; c.py = c.y; c.pz = c.z; c.pyaw = c.yaw;
+  }
+}
+
+/**
+ * Client: measures round-trip time (shown in the HUD) with a ping on the game channel once a second.
+ * @param {number} now - current time (ms)
+ * @returns {void}
+ */
+function sendPing(now) {
+  if (now - (net.pingT || 0) < 1000) return;
+  net.pingT = now;
+  toHost({ k: 'ping', t: now });
+}
+
+// -------------------------------------------------------------------- lobby ---
+
+/**
+ * Shows a status / error line in the lobby.
+ * @param {string} s - message ('' clears it)
+ * @param {boolean} [err] - style as an error
+ * @returns {void}
+ */
+const msg = (s, err) => { $('lmsg').textContent = s || ''; $('lmsg').className = err ? 'err' : ''; };
+
+/** Characters allowed in a room code (no look-alikes). */
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+/**
+ * Generates a random 4-character room code.
+ * @returns {string} room code
+ */
+const genCode = () => Array.from({ length: 4 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
+
+/**
+ * Remembers the player's name on this device.
+ * @returns {void}
+ */
+const saveName = () => { try { localStorage.pname = myName(); } catch (e) { /* storage blocked */ } };
+try { $('pname').value = localStorage.pname || ''; } catch (e) { /* no saved name */ }
+
+/**
+ * Re-evaluates what the screen shows: lobby overlay (initial lobby or intermission) vs. the game HUD; docks / undocks
+ * the settings panel accordingly.
+ * @returns {void}
+ */
+function refreshOverlay() {
+  const on = overlayOn();
+  $('lobby').style.display = on ? 'flex' : 'none';
+  document.body.className = (on ? 'lobby ' : '') + mode;
+  applyPanel();
+}
+
+/**
+ * Switches the client mode ('lobby' | 'offline' | 'host' | 'client').
+ * @param {string} m - new mode
+ * @returns {void}
+ */
+function setMode(m) { mode = m; refreshOverlay(); }
+
+/**
+ * Starts showing a fresh world: new car meshes / tile visuals, and a clean prediction + interpolation state.
+ * @param {string} m - mode to enter
+ * @returns {void}
+ */
+function enterGame(m) {
+  clearCars(); initTiles();
+  spec.i = 0; seenOver = false; bnUntil = 0;
+  net.snaps = []; net.lastT = -1;
+  net.clk = { off: null, jit: 0, lastArr: 0, lastT: 0 };
+  net.pred = { seq: 0, pending: [], corr: { x: 0, y: 0, z: 0 } };
+  setMode(m);
+}
+
+/**
+ * Returns to the plain lobby screen (after the host left / kicked us) with a message.
+ * @param {string} text - message to show
+ * @param {boolean} [err] - style as an error
+ * @returns {void}
+ */
+function toLobby(text, err) {
+  leaveNet();
+  w = mk(); clearCars(); initTiles();
+  setMode('lobby');
+  msg(text, err);
+}
+
+/**
+ * Makes a name unique inside the roster by appending " 2", " 3", ...
+ * @param {string} base - wanted name
+ * @param {string} id - the player's own id (ignored when comparing)
+ * @returns {string} unique name
+ */
+function uniqueName(base, id) {
+  let n = base, i = 2;
+  while (net.roster.some(r => r.id !== id && r.name === n)) n = cleanName(base.slice(0, 11)) + ' ' + i++;
+  return n;
+}
+
+/**
+ * Shows the host's key rules to clients (read-only), so everyone knows what they are playing.
+ * @returns {void}
+ */
+function renderRules() {
+  const R = $('rules');
+  R.innerHTML = '';
+  R.style.display = net.role === 'client' ? 'block' : 'none';
+  if (net.role !== 'client') return;
+  R.appendChild(mkEl('div', 'rh', 'ROOM RULES · set by the host'));
+  const lines = [
+    `Max players: ${C.maxPlayers}${C.fillBots ? ' · bots fill empty slots' : ''}`,
+    C.mapShrinkEnabled ? `Map shrinking: first wave ${C.mapShrinkInitialDelay}s, then every ${C.mapShrinkInterval}s (${C.mapShrinkRingsPerStep} ring${C.mapShrinkRingsPerStep > 1 ? 's' : ''}/wave)` : 'Map shrinking: off',
+    C.regenOff ? 'Tiles: destroyed for good' : `Tiles respawn after ${C.regen}s`,
+    C.puOn ? `Power-ups: up to ${C.puMax} on the map` : 'Power-ups: off',
+    C.shieldExpire ? `Shield expires after ${C.shieldDuration}s` : 'Shield lasts until broken'
+  ];
+  for (const l of lines) R.appendChild(mkEl('div', 'rule', l));
+}
+
+/**
+ * Redraws the lobby screen: room code, capacity, player list (with KICK buttons for the host), start button, rules.
+ * @returns {void}
+ */
+function updateLobby() {
+  const ro = net.role === 'host' ? rosterOut() : net.roster, inRoom = net.role !== 'none';
+  const P = $('plist');
+  P.innerHTML = '';
+  ro.forEach((r, i) => {
+    const row = mkEl('div', 'pl'), dot = mkEl('i');
+    dot.style.background = hx(COLORS[i % 8]);
+    row.appendChild(dot);
+    row.appendChild(mkEl('span', 'pn', r.name));
+    if (r.sc) row.appendChild(mkEl('b', null, String(r.sc)));
+    row.appendChild(mkEl('small', null, r.id === 'p' ? 'HOST' : r.id === net.myId ? 'YOU' : ''));
+    if (net.role === 'host' && !net.live && r.id !== 'p') row.appendChild(kickButton(r.id));
+    P.appendChild(row);
+  });
+  $('room').style.display = net.code && inRoom ? 'block' : 'none';
+  $('room').innerHTML = net.code && inRoom
+    ? `ROOM ID<b>${net.code}</b>${net.role === 'host' ? 'Friends enter this code to join' : 'Share this code so friends can join'}` : '';
+  $('cap').textContent = inRoom ? `PLAYERS ${ro.length}/${C.maxPlayers}${C.fillBots && net.role === 'host' ? ' · empty slots filled with bots' : ''}` : '';
+  $('cols').style.display = inRoom ? 'none' : 'grid';
+  const mine = ro.find(x => x.id === net.myId);
+  if (inRoom && mine && $('pname').value !== mine.name && document.activeElement !== $('pname')) $('pname').value = mine.name; // show the accepted name
+  $('startBtn').style.display = net.role === 'host' && !net.live && (ro.length >= 2 || (C.fillBots && C.maxPlayers >= 2)) ? 'block' : 'none';
+  renderRules();
+}
+
+/**
+ * Creates the two-step KICK button for a player (first click asks to confirm, second click kicks).
+ * @param {string} id - player id
+ * @returns {HTMLElement} the button
+ */
+function kickButton(id) {
+  const b = mkEl('button', 'kick', 'KICK');
+  let armed = 0;
+  b.onclick = () => {
+    if (!armed) {
+      b.textContent = 'CONFIRM?'; b.className = 'kick armed';
+      armed = setTimeout(() => { armed = 0; b.textContent = 'KICK'; b.className = 'kick'; }, 2500);
+      return;
+    }
+    clearTimeout(armed);
+    kickPlayer(id);
+  };
+  return b;
+}
+
+/**
+ * Applies the name typed in the lobby: the host updates its own roster entry, a client sends NAME_UPDATE to the host.
+ * The host de-duplicates, updates its player list and broadcasts it, so every lobby shows the change in real time.
+ * @returns {void}
+ */
+function pushName() {
+  clearTimeout(pushName.t);
+  const nm = myName();
+  saveName();
+  if (net.live) return; // names only change in the lobby / intermission
+  if (net.role === 'host') {
+    const h = net.roster.find(r => r.id === 'p');
+    if (h) { h.name = uniqueName(nm, 'p'); ctlAll({ k: 'roster', roster: rosterOut(), code: net.code }); updateLobby(); }
+  } else if (net.role === 'client') safeSend(net.hostConn, { k: 'NAME_UPDATE', name: nm });
+}
+$('pname').oninput = () => { clearTimeout(pushName.t); pushName.t = setTimeout(pushName, 250); };
+$('pname').onchange = pushName;
+
+/**
+ * Leaves the room: closes the peer and resets all network / lobby state.
+ * @returns {void}
+ */
+function leaveNet() {
+  try { if (net.peer) net.peer.destroy(); } catch (e) { /* already closed */ }
+  Object.assign(net, { peer: null, hostConn: null, gameConn: null, conns: {}, gconns: {}, tok: {}, cq: {}, roster: [], role: 'none',
+    live: false, code: '', scores: {}, interAt: 0, myId: 'p', cn: 0, hseq: 0 });
+  $('hostBtn').disabled = $('joinBtn').disabled = false;
+  updateLobby(); applyPanel();
+}
+
+// ----------------------------------------------------------- host: lobby net ---
+
+/**
+ * Host Game: registers a room code with the PeerJS broker and starts accepting players.
+ * @param {number} [tries=0] - retry counter when the random code is already taken
+ * @returns {void}
+ */
+function hostGame(tries = 0) {
+  if (typeof Peer === 'undefined') { msg('PeerJS failed to load - check your connection.'); return; }
+  saveName();
+  $('hostBtn').disabled = $('joinBtn').disabled = true;
+  msg('Creating room…');
+  const code = genCode(), peer = new Peer('rsr-' + code);
+  net.peer = peer;
+  peer.on('open', () => {
+    Object.assign(net, { role: 'host', code, myId: 'p', roster: [{ id: 'p', name: myName() }], live: false, scores: {} });
+    tab = 'LOBBY'; drawSig = '';
+    msg('Room ready. Share the Room ID, then start when everyone has joined.');
+    updateLobby(); applyPanel();
+  });
+  peer.on('error', e => {
+    if (e.type === 'unavailable-id' && tries < 5) { try { peer.destroy(); } catch (_) { /* ignore */ } hostGame(tries + 1); return; }
+    msg('Network error: ' + e.type, true); leaveNet();
+  });
+  peer.on('connection', hostAccept);
+}
+
+/**
+ * Host: routes a new incoming connection by its label ("game" = unreliable channel, otherwise the reliable control channel).
+ * @param {object} conn - PeerJS data connection
+ * @returns {void}
+ */
+function hostAccept(conn) { if (conn.label === 'game') hostGameConn(conn); else hostCtlConn(conn); }
+
+/**
+ * Host: handles a client's reliable control connection (join request, then lobby / gameplay messages).
+ * @param {object} conn - PeerJS data connection
+ * @returns {void}
+ */
+function hostCtlConn(conn) {
+  let id = null;
+  conn.on('data', d => {
+    if (!d || typeof d !== 'object') return;
+    if (d.k === 'hello' && !id) id = admit(conn, d);
+    else if (id) hostMsg(id, d);
+  });
+  conn.on('close', () => { if (id) dropPlayer(id); });
+}
+
+/**
+ * Host: handles a client's unreliable game connection; the first message binds it to a player via a secret token.
+ * @param {object} conn - PeerJS data connection
+ * @returns {void}
+ */
+function hostGameConn(conn) {
+  conn.on('data', d => {
+    if (!d || typeof d !== 'object') return;
+    if (d.k === 'bind') { if (net.tok[d.id] && net.tok[d.id] === d.tok) { net.gconns[d.id] = conn; conn._id = d.id; } }
+    else if (conn._id) hostMsg(conn._id, d);
+  });
+  conn.on('close', () => { if (conn._id && net.gconns[conn._id] === conn) delete net.gconns[conn._id]; });
+}
+
+/**
+ * Host: decides whether a joining client is admitted (capacity / match state) and sets everything up for it.
+ * @param {object} conn - the client's control connection
+ * @param {{name:string}} d - the hello message
+ * @returns {string|null} the new player id, or null if rejected
+ */
+function admit(conn, d) {
+  if (net.live || net.roster.length >= C.maxPlayers) {
+    const why = net.live ? 'Match in Progress' : `Lobby Full (${net.roster.length}/${C.maxPlayers})`;
+    safeSend(conn, { k: 'reject', why });
+    setTimeout(() => { try { conn.close(); } catch (e) { /* ignore */ } }, 300);
+    return null;
+  }
+  const id = 'c' + (++net.cn), name = uniqueName(cleanName(d.name), id), tok = Math.random().toString(36).slice(2);
+  net.roster.push({ id, name });
+  net.conns[id] = conn; net.tok[id] = tok; net.cq[id] = Sim.createCmdQueue();
+  safeSend(conn, { k: 'welcome', id, tok, cfg: { ...C }, roster: rosterOut(), code: net.code }); // one-time full config sync
+  ctlAll({ k: 'roster', roster: rosterOut(), code: net.code });
+  updateLobby();
+  return id;
+}
+
+/**
+ * Host: handles a message from a joined player (either channel).
+ * @param {string} id - the player's id
+ * @param {object} d - the message ('NAME_UPDATE' | 'in' input commands | 'ping')
+ * @returns {void}
+ */
+function hostMsg(id, d) {
+  if (d.k === 'NAME_UPDATE' && !net.live) {
+    const r = net.roster.find(x => x.id === id);
+    if (r) { r.name = uniqueName(cleanName(d.name), id); ctlAll({ k: 'roster', roster: rosterOut(), code: net.code }); updateLobby(); }
+  } else if (d.k === 'in' && net.cq[id] && Array.isArray(d.c)) Sim.cmdPush(net.cq[id], d.c);
+  else if (d.k === 'ping') gameSend(id, { k: 'pong', t: d.t });
+}
+
+/**
+ * Host: removes a player (disconnected or kicked). During a round the car is eliminated; in the lobby the roster shrinks.
+ * @param {string} id - player id
+ * @returns {void}
+ */
+function dropPlayer(id) {
+  if (!net.conns[id] && !net.cq[id]) return;
+  delete net.conns[id]; delete net.gconns[id]; delete net.tok[id]; delete net.cq[id];
+  if (net.live) { const c = carById(id); if (c) { c.alive = false; c.vx = c.vy = c.vz = 0; } }
+  else { net.roster = net.roster.filter(r => r.id !== id); ctlAll({ k: 'roster', roster: rosterOut(), code: net.code }); }
+  updateLobby();
+}
+
+/**
+ * Host: kicks a player out of the lobby (they are told, disconnected and removed from the list).
+ * @param {string} id - player id to kick (never the host)
+ * @returns {void}
+ */
+function kickPlayer(id) {
+  if (net.role !== 'host' || id === 'p' || !net.conns[id]) return;
+  const ctl = net.conns[id], game = net.gconns[id];
+  safeSend(ctl, { k: 'kicked' });
+  dropPlayer(id);
+  setTimeout(() => { for (const c of [game, ctl]) { try { if (c) c.close(); } catch (e) { /* ignore */ } } }, 250);
+}
+
+/**
+ * Host: starts a match - brand-new world and cars on clean pads for EVERYONE (existing and newly joined players),
+ * scores carried over; optionally fills empty slots with bots.
+ * @returns {void}
+ */
+function startMatch() {
+  const canStart = net.roster.length >= 2 || (C.fillBots && C.maxPlayers >= 2);
+  if (net.role !== 'host' || net.live || !canStart) return;
+  const nb = C.fillBots ? Math.max(0, Math.min(8, C.maxPlayers) - net.roster.length) : 0;
+  net.cq = {};
+  for (const r of net.roster) net.cq[r.id] = Sim.createCmdQueue();
+  w = buildWorld(net.roster, nb);
+  w.scores = { ...net.scores };
+  Object.assign(net, { live: true, interAt: 0, sendT: 1, hseq: 0 });
+  jl = false; pl = false;
+  net.d.ts.clear(); net.d.os.clear(); net.d.ev = [];
+  enterGame('host'); msg('');
+  ctlAll({ k: 'start', roster: rosterOut(), bots: nb, cfg: { ...C } });
+}
+
+/**
+ * Host: ends the round screen and returns everyone to the lobby (same room, joins allowed again).
+ * @returns {void}
+ */
+function enterIntermission() {
+  net.live = false; net.interAt = 0;
+  net.scores = { ...w.scores };
+  net.roster = net.roster.filter(r => r.id === 'p' || net.conns[r.id]); // players who left during the round are dropped
+  ctlAll({ k: 'inter', roster: rosterOut(), code: net.code });
+  msg('Round over. New players can join with the Room ID; the host starts the next match.');
+  updateLobby(); refreshOverlay();
+}
+
+// --------------------------------------------------------- client: lobby net ---
+
+/**
+ * Join Game: connects to a host with the 4-letter room code over a reliable control channel (the unreliable game
+ * channel is opened once the host has accepted us).
+ * @returns {void}
+ */
+function joinGame() {
+  const code = $('joinCode').value.trim().toUpperCase();
+  if (code.length < 4) { msg('Enter the 4-letter Room ID.'); return; }
+  if (typeof Peer === 'undefined') { msg('PeerJS failed to load - check your connection.'); return; }
+  saveName();
+  $('hostBtn').disabled = $('joinBtn').disabled = true;
+  msg('Connecting…');
+  const peer = new Peer();
+  net.peer = peer; net.hostId = 'rsr-' + code;
+  let done = false;
+  /** Aborts the join attempt with an error message. @param {string} m - message to show */
+  const fail = m => { if (done) return; done = true; msg(m, true); leaveNet(); };
+  const to = setTimeout(() => fail('Room not found, or the host is unreachable.'), 10000);
+  peer.on('error', e => { clearTimeout(to); fail(e.type === 'peer-unavailable' ? 'Room not found. Check the Room ID.' : 'Network error: ' + e.type); });
+  peer.on('open', () => {
+    const conn = peer.connect(net.hostId, { label: 'ctl', serialization: 'json', reliable: true });
+    net.hostConn = conn;
+    conn.on('open', () => {
+      clearTimeout(to); done = true; net.role = 'client';
+      safeSend(conn, { k: 'hello', name: myName() });
+      msg('Connected. Waiting for the host to start…'); applyPanel();
+    });
+    conn.on('data', clientData);
+    conn.on('close', () => { if (net.hostConn === conn && net.role === 'client') toLobby('Host disconnected.', true); }); // ignore stale closes from an older session
+  });
+}
+
+/**
+ * Client: opens the unreliable "game" channel used for input commands and state snapshots, and binds it to us.
+ * If it cannot be opened the reliable channel is used for everything (slower, but works).
+ * @param {string} id - our player id
+ * @param {string} tok - secret token from the welcome message
+ * @returns {void}
+ */
+function openGameChannel(id, tok) {
+  if (!net.peer) return;
+  const gc = net.peer.connect(net.hostId, { label: 'game', serialization: 'json', reliable: false });
+  gc.on('open', () => { net.gameConn = gc; safeSend(gc, { k: 'bind', id, tok }); });
+  gc.on('data', clientData);
+  gc.on('close', () => { if (net.gameConn === gc) net.gameConn = null; });
+}
+
+/**
+ * Client: handles every message from the host (both channels).
+ * @param {object} d - message: welcome | roster | inter | cfg | reject | kicked | start | reset | s (snapshot) | d (deltas) | pong
+ * @returns {void}
+ */
+function clientData(d) {
+  if (!d || typeof d !== 'object') return;
+  switch (d.k) {
+    case 'welcome': // joined: adopt the host's config and open the game channel
+      Object.assign(net, { myId: d.id, roster: d.roster, code: d.code });
+      Object.assign(C, d.cfg); updateLobby(); openGameChannel(d.id, d.tok); break;
+    case 'roster': net.roster = d.roster; if (d.code) net.code = d.code; updateLobby(); break;
+    case 'inter':
+      Object.assign(net, { live: false, roster: d.roster, code: d.code });
+      updateLobby(); refreshOverlay(); msg('Round over. Waiting for the host to start the next match…'); break;
+    case 'cfg': Object.assign(C, d.cfg); updateLobby(); break;
+    case 'reject': leaveNet(); msg(d.why, true); break;
+    case 'kicked': toLobby('You were kicked by the host.', true); break;
+    case 'start':
+      Object.assign(C, d.cfg); net.roster = d.roster;
+      w = buildWorld(d.roster, d.bots | 0);
+      net.live = true; jl = false; pl = false;
+      enterGame('client'); msg(''); break;
+    case 'reset':
+      Sim.resetRound(w);
+      net.snaps = []; net.pred = { seq: net.pred.seq, pending: [], corr: { x: 0, y: 0, z: 0 } };
+      initTiles(); spec.i = 0; seenOver = false; bnUntil = 0; break;
+    case 's': if (mode === 'client' && net.live) onSnapshot(d); break;
+    case 'd': if (mode === 'client' && net.live) onDelta(d); break;
+    case 'pong': net.rtt = net.rtt ? net.rtt * 0.7 + (performance.now() - d.t) * 0.3 : performance.now() - d.t; break;
+  }
+}
+
+$('hostBtn').onclick = () => hostGame();
+$('joinBtn').onclick = joinGame;
+$('startBtn').onclick = startMatch;
+$('joinCode').onkeydown = e => { if (e.key === 'Enter') joinGame(); };
+$('practice').onclick = () => {
+  saveName();
+  net.role = 'none'; net.myId = 'p';
+  w = mk(); panelOpen = true;
+  enterGame('offline');
+};
+
+// --------------------------------------------------------------- frame loop ---
+
+/** Frame timing / HUD cache state. */
+let acc = 0, last = performance.now(), fps = 60, sbHtml = '', hudKey = '', zoneFlash = 0;
+/** Reusable vector for projecting nametags. */
+const tv = new THREE.Vector3();
+
+/**
+ * Linear interpolation.
+ * @param {number} u - start
+ * @param {number} v - end
+ * @param {number} a - fraction 0..1
+ * @returns {number} u + (v - u) * a
+ */
+const lerp = (u, v, a) => u + (v - u) * a;
+
+/**
+ * Host / offline: advances the authoritative simulation with fixed 60 Hz steps and (host) broadcasts state.
+ * @param {number} fd - frame time in seconds
+ * @returns {void}
+ */
+function stepSim(fd) {
+  acc += fd;
+  while (acc >= DT) {
+    for (const c of w.cars) { c.px = c.x; c.py = c.y; c.pz = c.z; c.pyaw = c.yaw; }
+    Sim.step(w, buildInputs(), DT);
+    jl = false; pl = false;
+    acc -= DT;
+  }
+  if (mode !== 'host') return;
+  netCollect();
+  net.sendT += fd;
+  const iv = 1 / Math.max(10, C.netSnapshotRate);
+  if (net.sendT >= iv) { net.sendT %= iv; broadcastState(); }
+}
+
+/**
+ * Client: fixed-rate local prediction ticks, remote interpolation and ping.
+ * @param {number} now - rAF timestamp (ms)
+ * @param {number} fd - frame time in seconds
+ * @returns {void}
+ */
+function stepClient(now, fd) {
+  acc = Math.min(acc + fd, 0.1);
+  while (acc >= DT) { predictTick(); acc -= DT; }
+  interpolateRemotes(now);
+  sendPing(now);
+}
+
+/**
+ * Pushes tile state changes (red / fall / respawn / oil) into the instanced floor mesh.
+ * @returns {void}
+ */
+function syncTiles() {
+  let ch = false;
+  for (const t of w.redLog) { im.setColorAt(t.i, col.setHex(RED)); ch = true; }
+  for (const t of w.fallLog) anim.push(t);
+  for (const t of w.regenLog) { im.setColorAt(t.i, col.setHex(shade(t))); setM(t, -3.25); rise.push({ t, t0: w.t }); ch = true; }
+  w.redLog.length = w.fallLog.length = w.regenLog.length = 0;
+  for (let k = anim.length - 1; k >= 0; k--) { // falling tiles
+    const t = anim[k], d = w.t - t.ft, y = -.25 - 20 * (t.fs || 1) * d * d;
+    if (t.s !== 2) anim.splice(k, 1);
+    else if (y < -120) { setM(t, -200, 0); anim.splice(k, 1); }
+    else setM(t, y);
+    ch = true;
+  }
+  for (const t of w.oilLog) { t._h = t.oh.includes(net.myId); paint(t); ch = true; }
+  for (const t of w.oilClr) { paint(t); ch = true; }
+  w.oilLog.length = w.oilClr.length = 0;
+  for (const t of w.oilList) { const h = t.oh.includes(net.myId); if (h !== t._h) { t._h = h; paint(t); ch = true; } }
+  for (let k = rise.length - 1; k >= 0; k--) { // respawned tiles pop back up into place
+    const q = rise[k], p = (w.t - q.t0) / .35;
+    if (q.t.s === 2 || p >= 1) { if (q.t.s !== 2) setM(q.t, -.25); rise.splice(k, 1); }
+    else setM(q.t, -.25 - 3 * (1 - p) * (1 - p));
+    ch = true;
+  }
+  if (ch) { im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; }
+}
+
+/**
+ * Positions / animates the ramp meshes (ramps drop with their floor when that setting is on).
+ * @returns {void}
+ */
+function syncRamps() {
+  w.ramps.forEach((rp, i) => {
+    const m = rampMeshes[i];
+    if (!m) return;
+    if (rp.gone) { const d = Math.max(0, w.t - rp.ft), y = rp.h / 2 - 20 * d * d; m.position.y = y; m.visible = y > -120; }
+    else { m.position.y = rp.h / 2; m.visible = true; }
+  });
+}
+
+/**
+ * Updates every car mesh: interpolated position (+ fading reconciliation offset for the local car), size, wings and auras.
+ * @param {number} a - fraction between the last two simulation ticks (render interpolation)
+ * @param {number} fd - frame time in seconds
+ * @param {number} now - rAF timestamp (ms)
+ * @returns {void}
+ */
+function syncCars(a, fd, now) {
+  const co = mode === 'client' && C.netPrediction ? net.pred.corr : null;
+  if (co) { const k = Math.exp(-fd * 12); co.x *= k; co.y *= k; co.z *= k; }
+  for (const c of w.cars) {
+    const g = carMesh(c), u = g.userData, o = co && c.id === net.myId ? co : null;
+    u.sc += ((c.sz || 1) - u.sc) * (1 - Math.exp(-14 * fd));
+    g.scale.setScalar(u.sc);
+    g.visible = c.alive;
+    g.position.set(lerp(c.px ?? c.x, c.x, a) + (o ? o.x : 0), lerp(c.py ?? c.y, c.y, a) + .4 * u.sc + (o ? o.y : 0), lerp(c.pz ?? c.z, c.z, a) + (o ? o.z : 0));
+    g.rotation.y = lerp(c.pyaw ?? c.yaw, c.yaw, a);
+    u.i.rotation.z = -c.roll;
+    u.wk += ((c.st === 'F' ? 1 : 0) - u.wk) * (1 - Math.exp(-16 * fd)); // wings deploy in flight
+    const flap = c.st === 'F' ? Math.sin(now * .012) * .08 : 0;
+    u.wings.forEach((p, j) => { const s = j ? -1 : 1; p.scale.x = s * Math.max(.001, u.wk); p.rotation.z = s * (flap + .1 * u.wk); });
+    const gt = c.ghostT > 0;
+    if (gt !== u.gs) { u.gs = gt; u.mats.forEach(m => { m.transparent = gt; m.opacity = gt ? .35 : 1; m.depthWrite = !gt; m.needsUpdate = true; }); }
+    u.gh.visible = gt; u.sd.visible = c.shield > 0;
+    if (c.shield > 0) u.sd.material.opacity = .12 + .07 * c.shield;
+    u.sm.visible = c.smashT > 0;
+  }
+}
+
+/**
+ * Chase camera on the local player's car (host or client); spectates a survivor once eliminated; orbits the arena in
+ * the lobby or when nobody is left.
+ * @param {object} p - local player's car
+ * @param {number[]} al - indices of living cars
+ * @param {number} fd - frame time in seconds
+ * @param {number} now - rAF timestamp (ms)
+ * @returns {number} index of the followed car (-1 = orbit)
+ */
+function updateCamera(p, al, fd, now) {
+  const cd = view.cam * Math.max(1, p.sz || 1); // backs off when BIG
+  const ti = overlayOn() ? -1 : p.alive ? w.cars.indexOf(p) : al.length ? al[((spec.i % al.length) + al.length) % al.length] : -1;
+  if (ti < 0) {
+    const a2 = now * .0003;
+    cam.position.lerp(new THREE.Vector3(Math.cos(a2) * 55, 38, Math.sin(a2) * 55), 1 - Math.exp(-3 * fd));
+    cam.lookAt(0, 0, 0);
+  } else {
+    const g = carMesh(w.cars[ti]), yw = g.rotation.y, fx = Math.sin(yw), fz = Math.cos(yw), q = g.position, k = p.alive ? 1 : 1.7;
+    cam.position.lerp(new THREE.Vector3(q.x - fx * cd * k, q.y + cd * .55 * k, q.z - fz * cd * k), 1 - Math.exp(-8 * fd));
+    cam.lookAt(q.x + fx * 6, q.y + 1, q.z + fz * 6);
+  }
+  if (cam.updateMatrixWorld) cam.updateMatrixWorld();
+  return ti;
+}
+
+/**
+ * Floating nametags above every other car, with the power-ups they hold just above the name.
+ * @param {object} p - local player's car (its own tag is never shown)
+ * @returns {void}
+ */
+function updateNametags(p) {
+  const W2 = innerWidth / 2, H2 = innerHeight / 2;
+  for (const c of w.cars) {
+    let tg = tags[c.id];
+    if (!tg) {
+      tg = document.createElement('div'); tg.className = 'tag';
+      tg.style.setProperty('--c', hx(COLORS[(c.ci || 0) % 8]));
+      tg._ti = mkEl('div', 'ti'); tg._tn = mkEl('div', 'tn');
+      tg.appendChild(tg._ti); tg.appendChild(tg._tn);
+      $('tags').appendChild(tg); tags[c.id] = tg;
+    }
+    if (tg._n !== c.name) { tg._n = c.name; tg._tn.textContent = c.name; }
+    const ik = C.showOppItems && c.inv ? c.inv.join() : '';
+    if (tg._k !== ik) { tg._k = ik; tg._ti.innerHTML = ik ? c.inv.map(ty => coinIcon(ty, 20)).join('') : ''; }
+    let vis = !overlayOn() && c.alive && c.id !== p.id;
+    if (vis) {
+      const g = carMesh(c);
+      tv.set(g.position.x, g.position.y + 2.4 * Math.max(1, g.userData.sc || 1), g.position.z).project(cam);
+      vis = tv.z < 1 && tv.z > -1 && Math.abs(tv.x) < 1.2 && Math.abs(tv.y) < 1.2;
+      if (vis) tg.style.transform = `translate(${(tv.x * W2 + W2).toFixed(0)}px,${(H2 - tv.y * H2).toFixed(0)}px) translate(-50%,-100%)`;
+    }
+    tg.style.display = vis ? 'block' : 'none';
+  }
+}
+
+/**
+ * Floating power-up coins, one-shot effect rings (shockwave, collapse, shield, quantum...), zone flash.
+ * @param {number} now - rAF timestamp (ms)
+ * @returns {void}
+ */
+function updateItems(now) {
+  const live = {};
+  for (const it of w.items) {
+    live[it.id] = 1;
+    let m = itemMesh[it.id];
+    if (!m) { m = makeCoin(it.type); sc.add(m); itemMesh[it.id] = m; }
+    m.position.set(it.x, it.y + Math.sin(now * .003 + it.id) * .2, it.z);
+    m.rotation.y = now * .0016 + it.id;
+  }
+  for (const id in itemMesh) if (!live[id]) { sc.remove(itemMesh[id]); delete itemMesh[id]; }
+  for (const e of w.events) {
+    const c = carById(e.id);
+    if (e.k === 'shock') ring(e.x, e.z, e.r, 0x7fd8ff, .5, e.y);
+    else if (e.k === 'collapse') ring(e.x, e.z, e.rad || 5, 0x8b1a1a, .5, 0);
+    else if (e.k === 'shatter' && c) ring(c.x, c.z, 9, 0xffb62e, .4, c.y);
+    else if (e.k === 'shield' && c) ring(c.x, c.z, 4, 0x4cc4ff, .25, c.y);
+    else if (e.k === 'zone') zoneFlash = now + 1800;
+    else if (e.k === 'quantum' && c) ring(c.x, c.z, e.kind === 'big' ? 10 : 5, e.kind === 'big' ? 0xe5534b : 0x2ee6f0, .5, c.y);
+    else if (e.k === 'shieldExpire' && c) ring(c.x, c.z, 5, 0xe8f1ff, .4, c.y);
+  }
+  w.events.length = 0;
+  for (let k = rings.length - 1; k >= 0; k--) {
+    const r = rings[k], a2 = (now - r.t0) / (r.d * 1000);
+    if (a2 >= 1) { sc.remove(r.m); rings.splice(k, 1); }
+    else { r.m.scale.setScalar(Math.max(.01, a2 * r.R)); r.m.material.opacity = .6 * (1 - a2); }
+  }
+}
+
+/**
+ * Rebuilds the inventory HUD (3 coin slots + passive / effect chips) when something it shows changed.
+ * @param {object} pk - local player's car
+ * @returns {void}
+ */
+function updateInventory(pk) {
+  const hk = JSON.stringify([pk.inv, Math.ceil(pk.smashT), pk.shield, pk.boostT > 0, Math.ceil(pk.ghostT), Math.ceil(pk.oilT), pk.alive,
+    pk.qk, Math.ceil(pk.qT || 0), Math.ceil(pk.shieldT || 0), C.shieldExpire]);
+  if (hk === hudKey) return;
+  hudKey = hk;
+  let h = '<div class=slots>';
+  for (let k = 0; k < 3; k++) {
+    const ty = pk.inv[k];
+    h += ty
+      ? `<div class="slot${k ? '' : ' cur'}" style="--c:${hx(CC[ty])}">${coinIcon(ty, 40)}<small>${ITM[ty]}</small>${k ? '' : '<em>' + kb.power[0].replace('Key', '').toUpperCase() + '</em>'}</div>`
+      : '<div class="slot empty"></div>';
+  }
+  h += '</div><div class=chips>';
+  if (pk.smashT > 0) h += `<span>${coinIcon('smash', 22)}${Math.ceil(pk.smashT)}s</span>`;
+  if (pk.shield > 0) h += `<span>${coinIcon('shield', 22)}×${pk.shield}${C.shieldExpire && pk.shieldT > 0 ? ' · ' + fmtT(pk.shieldT) : ''}</span>`;
+  if (pk.boostT > 0) h += `<span>${coinIcon('boost', 22)}BOOST</span>`;
+  if (pk.ghostT > 0) h += `<span>${coinIcon('ghost', 22)}${Math.ceil(pk.ghostT)}s</span>`;
+  if (pk.oilT > 0) h += `<span>${coinIcon('oil', 22)}${Math.ceil(pk.oilT)}s</span>`;
+  if (pk.qk) h += `<span>${coinIcon('quantum', 22)}${pk.qk === 'big' ? 'BIG' : 'SMALL'} ${Math.ceil(pk.qT)}s</span>`;
+  $('inv').innerHTML = h + '</div>';
+}
+
+/**
+ * Round banner, spectator hint, zone countdown, scoreboard and the corner text HUD.
+ * @param {object} p - local player's car
+ * @param {number[]} al - indices of living cars
+ * @param {number} ti - followed car index
+ * @param {number} now - rAF timestamp (ms)
+ * @returns {void}
+ */
+function updateHud(p, al, ti, now) {
+  const rd = w.round;
+  if (rd.phase === 'over' && !seenOver) { seenOver = true; bnUntil = now + 3500; }
+  if (rd.phase === 'play') seenOver = false;
+  const bn = $('bn');
+  if (now < bnUntil) { bn.style.display = 'block'; bn.innerHTML = rd.winner ? `ROUND WINNER<small>${esc(nameOf(rd.winner))} · +1 point</small>` : 'DRAW<small>no survivors</small>'; }
+  else bn.style.display = 'none';
+  const sp = $('sp');
+  sp.style.display = p.alive || overlayOn() ? 'none' : 'block';
+  sp.textContent = p.alive ? '' : `ELIMINATED · spectating${al.length && ti >= 0 ? ' · ' + w.cars[ti].name : ''} · ${kb.left[0].replace('Key', '')}/${kb.right[0].replace('Key', '')} switch`;
+  const zi = mode === 'client' ? (w.zn || { next: -1, ring: 36, min: 1 }) : Sim.shrinkInfo(w), zel = $('zone');
+  let zt = '', hot = false;
+  if (!overlayOn() && rd.phase === 'play' && C.mapShrinkEnabled) {
+    if (now < zoneFlash) { zt = '⚠ ZONE SHRINKING'; hot = true; }
+    else if (zi.next >= 0) { const sec = Math.max(0, Math.ceil(zi.next - w.t)); zt = `ZONE SHRINKS IN ${sec}s · ${zi.ring - zi.min} RINGS LEFT`; hot = sec <= 3; }
+    else if (zi.ring <= zi.min) zt = 'ZONE AT MINIMUM';
+  }
+  zel.style.display = zt ? 'block' : 'none'; zel.textContent = zt; zel.className = hot ? 'hot' : '';
+  const sh = w.cars.map(c => `<span class="${c.id === net.myId ? 'you' : ''} ${c.alive ? '' : 'out'}">${esc(c.name || c.id)}<b>${w.scores[c.id] || 0}</b></span>`).join('');
+  if (sh !== sbHtml) { sbHtml = sh; $('sb').innerHTML = sh; }
+  const state = p.alive ? { G: 'GROUND', J: 'JUMP', F: 'FLIGHT', D: 'DROP', X: 'FALLING', C: 'COYOTE' }[p.st] : 'ELIMINATED';
+  const where = mode === 'client' ? `CLIENT · ROOM ${net.code} · ${Math.round(net.rtt)} ms${C.netPrediction ? ' · predicted' : ''}`
+    : mode === 'host' ? `HOST · ROOM ${net.code} · ${net.roster.length}/${C.maxPlayers}` : 'offline';
+  $('h').textContent = `${state} · ${Math.hypot(p.vx, p.vz).toFixed(0)} u/s · alt ${p.y.toFixed(1)}\n${fps.toFixed(0)} fps · ${where}\njump: ${p.ev || '-'} · air ${p.gs}f\n${canEdit() ? 'R new round · H settings' : 'H controls · host sets the rules'}`;
+  $('h').style.display = view.hud ? 'block' : 'none';
+}
+
+/**
+ * Main loop (requestAnimationFrame): advances the simulation (host / offline) or prediction + interpolation (client),
+ * synchronizes all visuals and HUD, and renders.
+ * @param {number} now - rAF timestamp (ms)
+ * @returns {void}
+ */
+function frame(now) {
+  const fd = Math.min((now - last) / 1000, .1);
+  last = now; fps += (1 / fd - fps) * .05;
+  if (mode === 'offline' || (mode === 'host' && net.live)) stepSim(fd);
+  else if (mode === 'client' && net.live) stepClient(now, fd);
+  else { acc = 0; jl = false; pl = false; }
+  if (mode === 'host' && net.live && w.round.phase === 'over') { // winner banner shown -> back to the lobby (same room)
+    if (!net.interAt) net.interAt = now + 4000; else if (now >= net.interAt) enterIntermission();
+  } else net.interAt = 0;
+  syncTiles(); syncRamps(); syncCars(acc / DT, fd, now);
+  const p = me(), al = w.cars.map((c, i) => i).filter(i => w.cars[i].alive), ti = updateCamera(p, al, fd, now);
+  updateNametags(p); updateItems(now); updateInventory(p);
+  const fv = 72 + (p.boostT > 0 ? 12 : 0);
+  if (Math.abs(cam.fov - fv) > .05) { cam.fov += (fv - cam.fov) * (1 - Math.exp(-8 * fd)); cam.updateProjectionMatrix(); }
+  updateHud(p, al, ti, now);
+  renderer.render(sc, cam);
+  requestAnimationFrame(frame);
+}
+
+updateLobby();
+setMode('lobby');
+requestAnimationFrame(frame);
+
 </script>
